@@ -1,0 +1,685 @@
+[
+  {
+    "id": "mudskip_minnow",
+    "name": "Mudskip Minnow",
+    "rarity": "common",
+    "spots": [
+      "dock"
+    ],
+    "zones": [
+      "shallow"
+    ],
+    "times": [
+      "morning",
+      "day",
+      "dusk",
+      "night"
+    ],
+    "takes": [
+      "bait_worm",
+      "bait_bread"
+    ],
+    "sizeCm": {
+      "min": 5,
+      "max": 12
+    },
+    "value": 3,
+    "color": "#9fb7b9",
+    "fight": {
+      "strength": 0.6,
+      "stamina": 5,
+      "runEvery": 4,
+      "runDuration": 0.8
+    },
+    "blurb": "Skips across the mud when the tide drops."
+  },
+  {
+    "id": "dock_perch",
+    "name": "Dock Perch",
+    "rarity": "common",
+    "spots": [
+      "dock"
+    ],
+    "zones": [
+      "shallow",
+      "mid"
+    ],
+    "times": [
+      "morning",
+      "day"
+    ],
+    "takes": [
+      "bait_worm"
+    ],
+    "sizeCm": {
+      "min": 12,
+      "max": 36
+    },
+    "value": 7,
+    "color": "#8aa84a",
+    "fight": {
+      "strength": 1,
+      "stamina": 8,
+      "runEvery": 3.5,
+      "runDuration": 1
+    },
+    "blurb": "Striped, spiny, always hungry."
+  },
+  {
+    "id": "rust_bream",
+    "name": "Rust Bream",
+    "rarity": "common",
+    "spots": [
+      "dock"
+    ],
+    "zones": [
+      "mid",
+      "deep"
+    ],
+    "times": [
+      "day",
+      "dusk"
+    ],
+    "takes": [
+      "bait_worm",
+      "bait_bread",
+      "bait_dough"
+    ],
+    "sizeCm": {
+      "min": 15,
+      "max": 32
+    },
+    "value": 9,
+    "color": "#b5683a",
+    "fight": {
+      "strength": 1.2,
+      "stamina": 9,
+      "runEvery": 4,
+      "runDuration": 1
+    },
+    "blurb": "Flat and copper-coloured."
+  },
+  {
+    "id": "glassfin_smelt",
+    "name": "Glassfin Smelt",
+    "rarity": "uncommon",
+    "spots": [
+      "dock"
+    ],
+    "zones": [
+      "shallow"
+    ],
+    "times": [
+      "morning"
+    ],
+    "takes": [
+      "bait_bread"
+    ],
+    "sizeCm": {
+      "min": 8,
+      "max": 16
+    },
+    "value": 12,
+    "color": "#cfe8f3",
+    "fight": {
+      "strength": 0.7,
+      "stamina": 5,
+      "runEvery": 2.5,
+      "runDuration": 0.7
+    },
+    "blurb": "You can see its bones in the morning light."
+  },
+  {
+    "id": "harbor_eel",
+    "name": "Harbor Eel",
+    "rarity": "uncommon",
+    "spots": [
+      "dock"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "dusk",
+      "night"
+    ],
+    "takes": [
+      "bait_worm",
+      "bait_shrimp"
+    ],
+    "sizeCm": {
+      "min": 40,
+      "max": 85
+    },
+    "value": 16,
+    "color": "#4b5d4e",
+    "fight": {
+      "strength": 1.8,
+      "stamina": 14,
+      "runEvery": 3,
+      "runDuration": 1.4
+    },
+    "blurb": "Ties itself in knots on the line."
+  },
+  {
+    "id": "creek_dace",
+    "name": "Creek Dace",
+    "rarity": "common",
+    "spots": [
+      "creek"
+    ],
+    "zones": [
+      "shallow",
+      "mid"
+    ],
+    "times": [
+      "morning",
+      "day",
+      "dusk",
+      "night"
+    ],
+    "takes": [
+      "bait_worm",
+      "bait_bread",
+      "lure_fly"
+    ],
+    "sizeCm": {
+      "min": 10,
+      "max": 22
+    },
+    "value": 6,
+    "color": "#a8c0a0",
+    "fight": {
+      "strength": 0.9,
+      "stamina": 6,
+      "runEvery": 3,
+      "runDuration": 0.8
+    },
+    "blurb": "Quick silver in the riffles."
+  },
+  {
+    "id": "stonecrawler",
+    "name": "Stonecrawler Bullhead",
+    "rarity": "common",
+    "spots": [
+      "creek"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "day",
+      "night"
+    ],
+    "takes": [
+      "bait_worm",
+      "bait_shrimp"
+    ],
+    "sizeCm": {
+      "min": 14,
+      "max": 30
+    },
+    "value": 9,
+    "color": "#6e5a44",
+    "fight": {
+      "strength": 1.4,
+      "stamina": 10,
+      "runEvery": 5,
+      "runDuration": 1
+    },
+    "blurb": "Hugs the bottom and sulks."
+  },
+  {
+    "id": "speckled_trout",
+    "name": "Speckled Trout",
+    "rarity": "uncommon",
+    "spots": [
+      "creek"
+    ],
+    "zones": [
+      "mid"
+    ],
+    "times": [
+      "morning",
+      "dusk"
+    ],
+    "takes": [
+      "bait_worm",
+      "lure_fly"
+    ],
+    "sizeCm": {
+      "min": 20,
+      "max": 48
+    },
+    "value": 24,
+    "color": "#d08c6a",
+    "fight": {
+      "strength": 2,
+      "stamina": 12,
+      "runEvery": 2.5,
+      "runDuration": 1.3
+    },
+    "blurb": "Jumps twice before it tires."
+  },
+  {
+    "id": "silver_darter",
+    "name": "Silver Darter",
+    "rarity": "rare",
+    "spots": [
+      "creek"
+    ],
+    "zones": [
+      "shallow"
+    ],
+    "times": [
+      "morning"
+    ],
+    "takes": [
+      "lure_fly"
+    ],
+    "requires": "lure_fly",
+    "sizeCm": {
+      "min": 12,
+      "max": 26
+    },
+    "value": 55,
+    "color": "#e6eef5",
+    "fight": {
+      "strength": 1.6,
+      "stamina": 9,
+      "runEvery": 1.8,
+      "runDuration": 0.9
+    },
+    "grantsKeyItem": "key_blade",
+    "blurb": "One scale from its flank makes a spinner blade."
+  },
+  {
+    "id": "lily_sunfish",
+    "name": "Lily Sunfish",
+    "rarity": "common",
+    "spots": [
+      "pond"
+    ],
+    "zones": [
+      "shallow"
+    ],
+    "times": [
+      "morning",
+      "day"
+    ],
+    "takes": [
+      "bait_bread",
+      "bait_worm"
+    ],
+    "sizeCm": {
+      "min": 8,
+      "max": 20
+    },
+    "value": 6,
+    "color": "#e3b341",
+    "fight": {
+      "strength": 0.8,
+      "stamina": 6,
+      "runEvery": 3,
+      "runDuration": 0.8
+    },
+    "blurb": "Round as a coin."
+  },
+  {
+    "id": "moss_carp",
+    "name": "Moss Carp",
+    "rarity": "uncommon",
+    "spots": [
+      "pond"
+    ],
+    "zones": [
+      "mid",
+      "deep"
+    ],
+    "times": [
+      "day",
+      "dusk"
+    ],
+    "takes": [
+      "bait_dough",
+      "bait_bread",
+      "bait_honey"
+    ],
+    "sizeCm": {
+      "min": 30,
+      "max": 72
+    },
+    "value": 22,
+    "color": "#6f8f3c",
+    "fight": {
+      "strength": 2.4,
+      "stamina": 18,
+      "runEvery": 4,
+      "runDuration": 1.6
+    },
+    "blurb": "Slow, heavy, stubborn."
+  },
+  {
+    "id": "reed_pike",
+    "name": "Reed Pike",
+    "rarity": "uncommon",
+    "spots": [
+      "pond"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "dusk",
+      "night"
+    ],
+    "takes": [
+      "lure_spoon",
+      "bait_shrimp"
+    ],
+    "sizeCm": {
+      "min": 40,
+      "max": 95
+    },
+    "value": 30,
+    "color": "#5c7a4a",
+    "fight": {
+      "strength": 2.8,
+      "stamina": 14,
+      "runEvery": 2.2,
+      "runDuration": 1.5
+    },
+    "blurb": "Ambushes from the reeds."
+  },
+  {
+    "id": "golden_tench",
+    "name": "Golden Tench",
+    "rarity": "rare",
+    "spots": [
+      "pond"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "dusk"
+    ],
+    "takes": [
+      "bait_honey"
+    ],
+    "requires": "bait_honey",
+    "sizeCm": {
+      "min": 30,
+      "max": 58
+    },
+    "value": 70,
+    "color": "#f1c232",
+    "fight": {
+      "strength": 2.6,
+      "stamina": 16,
+      "runEvery": 3.5,
+      "runDuration": 1.4
+    },
+    "grantsKeyItem": "key_scale",
+    "blurb": "Sheds one golden scale when landed."
+  },
+  {
+    "id": "falls_char",
+    "name": "Falls Char",
+    "rarity": "uncommon",
+    "spots": [
+      "falls"
+    ],
+    "zones": [
+      "mid"
+    ],
+    "times": [
+      "morning",
+      "day"
+    ],
+    "takes": [
+      "lure_spoon",
+      "bait_worm"
+    ],
+    "sizeCm": {
+      "min": 25,
+      "max": 52
+    },
+    "value": 28,
+    "color": "#c96b5a",
+    "fight": {
+      "strength": 2.8,
+      "stamina": 14,
+      "runEvery": 2.5,
+      "runDuration": 1.3
+    },
+    "blurb": "Orange-bellied, loves the spray."
+  },
+  {
+    "id": "whitewater_grayling",
+    "name": "Whitewater Grayling",
+    "rarity": "rare",
+    "spots": [
+      "falls"
+    ],
+    "zones": [
+      "shallow"
+    ],
+    "times": [
+      "morning"
+    ],
+    "takes": [
+      "lure_fly"
+    ],
+    "requires": "lure_fly",
+    "sizeCm": {
+      "min": 25,
+      "max": 46
+    },
+    "value": 60,
+    "color": "#b9c7e6",
+    "fight": {
+      "strength": 2.5,
+      "stamina": 12,
+      "runEvery": 2,
+      "runDuration": 1.1
+    },
+    "blurb": "A sail for a fin."
+  },
+  {
+    "id": "ironjaw",
+    "name": "The Ironjaw",
+    "rarity": "rare",
+    "spots": [
+      "falls"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "morning",
+      "day",
+      "dusk",
+      "night"
+    ],
+    "takes": [
+      "lure_spoon"
+    ],
+    "requires": "lure_spoon",
+    "sizeCm": {
+      "min": 90,
+      "max": 135
+    },
+    "value": 120,
+    "color": "#5a6672",
+    "fight": {
+      "strength": 5,
+      "stamina": 45,
+      "runEvery": 3.5,
+      "runDuration": 2
+    },
+    "grantsKeyItem": "key_hook",
+    "boss": {
+      "phases": [
+        {
+          "staminaBelow": 0.66,
+          "strengthMult": 1.15,
+          "runEveryMult": 0.7,
+          "label": "It thrashes!"
+        },
+        {
+          "staminaBelow": 0.33,
+          "strengthMult": 1.35,
+          "runEveryMult": 1.6,
+          "label": "It dives for the bottom!"
+        }
+      ]
+    },
+    "blurb": "A pike as old as the pool. Hooks hang from its jaw like earrings.",
+    "once": true
+  },
+  {
+    "id": "night_bream",
+    "name": "Night Bream",
+    "rarity": "common",
+    "spots": [
+      "lake"
+    ],
+    "zones": [
+      "shallow",
+      "mid"
+    ],
+    "times": [
+      "dusk",
+      "night"
+    ],
+    "takes": [
+      "bait_worm",
+      "bait_bread",
+      "bait_dough"
+    ],
+    "sizeCm": {
+      "min": 18,
+      "max": 38
+    },
+    "value": 14,
+    "color": "#5f6f8a",
+    "fight": {
+      "strength": 1.6,
+      "stamina": 10,
+      "runEvery": 4,
+      "runDuration": 1
+    },
+    "blurb": "Pale eyes, cold water."
+  },
+  {
+    "id": "lantern_catfish",
+    "name": "Lantern Catfish",
+    "rarity": "uncommon",
+    "spots": [
+      "lake"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "night"
+    ],
+    "takes": [
+      "bait_shrimp",
+      "bait_worm"
+    ],
+    "sizeCm": {
+      "min": 50,
+      "max": 105
+    },
+    "value": 34,
+    "color": "#8c7b5a",
+    "fight": {
+      "strength": 3.2,
+      "stamina": 20,
+      "runEvery": 4.5,
+      "runDuration": 1.5
+    },
+    "blurb": "Its whiskers glow faintly."
+  },
+  {
+    "id": "moonshade_bass",
+    "name": "Moonshade Bass",
+    "rarity": "rare",
+    "spots": [
+      "lake"
+    ],
+    "zones": [
+      "mid"
+    ],
+    "times": [
+      "night"
+    ],
+    "takes": [
+      "lure_glow"
+    ],
+    "requires": "lure_glow",
+    "sizeCm": {
+      "min": 35,
+      "max": 62
+    },
+    "value": 60,
+    "color": "#7a6fb3",
+    "fight": {
+      "strength": 3.4,
+      "stamina": 16,
+      "runEvery": 2,
+      "runDuration": 1.4
+    },
+    "blurb": "Only rises under a dark moon."
+  },
+  {
+    "id": "old_greyback",
+    "name": "Old Greyback",
+    "rarity": "legendary",
+    "spots": [
+      "lake"
+    ],
+    "zones": [
+      "deep"
+    ],
+    "times": [
+      "night"
+    ],
+    "takes": [
+      "lure_greyback"
+    ],
+    "requires": "lure_greyback",
+    "sizeCm": {
+      "min": 140,
+      "max": 190
+    },
+    "value": 500,
+    "color": "#aab4bf",
+    "fight": {
+      "strength": 6.5,
+      "stamina": 60,
+      "runEvery": 3,
+      "runDuration": 2.6
+    },
+    "boss": {
+      "phases": [
+        {
+          "staminaBelow": 0.5,
+          "strengthMult": 1.2,
+          "runEveryMult": 0.6,
+          "label": "It surges!"
+        },
+        {
+          "staminaBelow": 0.2,
+          "strengthMult": 1.4,
+          "runEveryMult": 2,
+          "label": "One last pull..."
+        }
+      ]
+    },
+    "blurb": "Fifty years. Nobody. Until now.",
+    "once": true
+  }
+]

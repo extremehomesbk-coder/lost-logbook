@@ -1,0 +1,160 @@
+{
+  "rods": [
+    {
+      "id": "rod_cane",
+      "name": "Cane Rod",
+      "tier": 1,
+      "strength": 1,
+      "price": 0,
+      "blurb": "Old bamboo. Bends like a reed."
+    },
+    {
+      "id": "rod_ash",
+      "name": "Ash Rod",
+      "tier": 2,
+      "strength": 2,
+      "price": 60,
+      "blurb": "Stiff enough for creek current."
+    },
+    {
+      "id": "rod_steel",
+      "name": "Steel Rod",
+      "tier": 3,
+      "strength": 3,
+      "price": 260,
+      "blurb": "Hauls heavy fish in half the time."
+    },
+    {
+      "id": "rod_carbon",
+      "name": "Carbon Rod",
+      "tier": 4,
+      "strength": 4,
+      "price": 600,
+      "blurb": "Made for the one in the logbook."
+    }
+  ],
+  "lines": [
+    {
+      "id": "line_cotton",
+      "name": "Cotton Line",
+      "tier": 1,
+      "price": 0,
+      "blurb": "Snaps if you look at it wrong."
+    },
+    {
+      "id": "line_braid",
+      "name": "Braided Line",
+      "tier": 2,
+      "price": 50,
+      "blurb": "Takes the weight of a carp."
+    },
+    {
+      "id": "line_silk",
+      "name": "Silk Line",
+      "tier": 3,
+      "price": 220,
+      "blurb": "Strong and quiet in deep water."
+    },
+    {
+      "id": "line_wire",
+      "name": "Wire Leader",
+      "tier": 4,
+      "price": 520,
+      "blurb": "Nothing bites through this."
+    }
+  ],
+  "baits": [
+    {
+      "id": "bait_worm",
+      "name": "Worms",
+      "price": 6,
+      "pack": 5,
+      "blurb": "Everything eats worms."
+    },
+    {
+      "id": "bait_bread",
+      "name": "Bread Balls",
+      "price": 4,
+      "pack": 5,
+      "blurb": "Small fish love it."
+    },
+    {
+      "id": "bait_shrimp",
+      "name": "Shrimp",
+      "price": 12,
+      "pack": 4,
+      "blurb": "For eels, pike and catfish."
+    },
+    {
+      "id": "bait_dough",
+      "name": "Dough",
+      "price": 10,
+      "pack": 4,
+      "blurb": "Carp bait."
+    },
+    {
+      "id": "bait_honey",
+      "name": "Honey Dough",
+      "price": 20,
+      "pack": 2,
+      "shopUnlock": "q_honey",
+      "blurb": "The Golden Tench takes nothing else."
+    }
+  ],
+  "lures": [
+    {
+      "id": "lure_fly",
+      "name": "Feather Fly",
+      "price": 45,
+      "blurb": "Trout and darters rise to it."
+    },
+    {
+      "id": "lure_spoon",
+      "name": "Tin Spoon",
+      "price": 70,
+      "blurb": "Flashes like a wounded minnow. Pike, char, the Ironjaw."
+    },
+    {
+      "id": "lure_glow",
+      "name": "Glow Lure",
+      "price": null,
+      "blurb": "Quest reward. Lights up the night lake."
+    },
+    {
+      "id": "lure_greyback",
+      "name": "Greyback Lure",
+      "price": null,
+      "blurb": "Assembled from three parts. The only thing the legend bites."
+    }
+  ],
+  "keyItems": [
+    {
+      "id": "key_lantern",
+      "name": "Old Lantern",
+      "blurb": "Lights the path to the Night Lake."
+    },
+    {
+      "id": "key_blade",
+      "name": "Silver Blade",
+      "blurb": "A spinner blade cut from a Silver Darter scale."
+    },
+    {
+      "id": "key_scale",
+      "name": "Golden Scale",
+      "blurb": "Shed by a Golden Tench."
+    },
+    {
+      "id": "key_hook",
+      "name": "Ironjaw Hook",
+      "blurb": "Pulled from the mouth of the Ironjaw."
+    }
+  ],
+  "assembly": {
+    "result": "lure_greyback",
+    "parts": [
+      "key_blade",
+      "key_scale",
+      "key_hook"
+    ]
+  }
+}

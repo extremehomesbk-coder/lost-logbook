@@ -1,0 +1,76 @@
+[
+  {
+    "id": "q_perch",
+    "title": "A Proper Perch",
+    "text": "The cook wants a Dock Perch over 30 cm.",
+    "condition": {
+      "type": "catch_species",
+      "fish": "dock_perch",
+      "minSizeCm": 30,
+      "count": 1
+    },
+    "reward": {
+      "coins": 45
+    }
+  },
+  {
+    "id": "q_trout",
+    "title": "Feathers for Trout",
+    "text": "Land a Speckled Trout and the fly-tier hands you a Feather Fly.",
+    "condition": {
+      "type": "catch_species",
+      "fish": "speckled_trout",
+      "count": 1
+    },
+    "reward": {
+      "items": {
+        "lure_fly": 1
+      },
+      "coins": 20
+    }
+  },
+  {
+    "id": "q_dusk",
+    "title": "Dusk Patrol",
+    "text": "Catch six fish at dusk. The lamplighter lends you the Old Lantern.",
+    "condition": {
+      "type": "catch_at_time",
+      "time": "dusk",
+      "count": 6
+    },
+    "reward": {
+      "keyItem": "key_lantern"
+    }
+  },
+  {
+    "id": "q_honey",
+    "title": "Carp for the Baker",
+    "text": "Bring two Moss Carp. The baker shares the honey dough recipe.",
+    "condition": {
+      "type": "catch_species",
+      "fish": "moss_carp",
+      "count": 2
+    },
+    "reward": {
+      "items": {
+        "bait_honey": 2
+      },
+      "coins": 30
+    }
+  },
+  {
+    "id": "q_glow",
+    "title": "Lights Below",
+    "text": "Catch a Lantern Catfish. The old angler trades a Glow Lure for its story.",
+    "condition": {
+      "type": "catch_species",
+      "fish": "lantern_catfish",
+      "count": 1
+    },
+    "reward": {
+      "items": {
+        "lure_glow": 1
+      }
+    }
+  }
+]

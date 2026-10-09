@@ -1,0 +1,107 @@
+{
+  "title": "Lost Logbook",
+  "premise": "You found an old logbook. Its last page describes a fish nobody has landed in fifty years. Catch it.",
+  "start": {
+    "coins": 20,
+    "rod": "rod_cane",
+    "line": "line_cotton",
+    "inventory": {
+      "bait_worm": 10,
+      "bait_bread": 6
+    },
+    "spot": "dock",
+    "equipped": "bait_worm"
+  },
+  "time": {
+    "order": [
+      "morning",
+      "day",
+      "dusk",
+      "night"
+    ],
+    "castsPerPeriod": 3,
+    "travelAdvances": 1,
+    "waitAdvances": 1
+  },
+  "cast": {
+    "chargeSeconds": 1.6,
+    "zones": {
+      "shallow": 0.35,
+      "mid": 0.7
+    },
+    "flightSeconds": 0.9
+  },
+  "bite": {
+    "nibbles": {
+      "min": 0,
+      "max": 3
+    },
+    "nibbleGap": {
+      "min": 0.5,
+      "max": 1.1
+    },
+    "hookWindowSeconds": 0.6,
+    "nothingBitingSeconds": 9,
+    "earlyTapSpooks": true
+  },
+  "fight": {
+    "startTension": 25,
+    "reelRise": 20,
+    "pullRise": 13,
+    "releaseFall": 42,
+    "runRiseMult": 1.7,
+    "slackBelow": 8,
+    "slackSeconds": 1.8,
+    "reelSpeed": 10,
+    "runSpeed": 5.5,
+    "runDrain": 1,
+    "holdDrain": 0.5,
+    "tiredBelow": 0.12,
+    "firstRunDelay": 1.2,
+    "minRunDuration": 0.6,
+    "weakPull": 0.4,
+    "lineCaps": {
+      "1": 100,
+      "2": 130,
+      "3": 170,
+      "4": 220
+    },
+    "pullExponent": 1.6,
+    "tightBelow": 25,
+    "tightSpan": 35,
+    "restBelow": 40,
+    "restRegen": 0.6,
+    "gainBase": 1.2,
+    "fishHold": 0.5,
+    "gainMin": -0.6
+  },
+  "predator": {
+    "taps": 5,
+    "seconds": 2,
+    "triggerStaminaBelow": 0.55
+  },
+  "economy": {
+    "sellLowMult": 0.6,
+    "sellHighMult": 1.5,
+    "bigFishBonusAt": 0.9,
+    "bigFishBonusMult": 1.25,
+    "creelSize": 8
+  },
+  "rarityWeight": {
+    "common": 10,
+    "uncommon": 4,
+    "rare": 1.2,
+    "legendary": 1
+  },
+  "reveal": {
+    "commonSeconds": 1.8,
+    "uncommonSeconds": 2.2,
+    "rareSeconds": 3.2,
+    "legendarySeconds": 5
+  },
+  "save": {
+    "key": "lostlogbook.save",
+    "version": 1,
+    "exportPrefix": "LL1."
+  }
+}

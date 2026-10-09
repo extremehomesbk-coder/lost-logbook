@@ -1,0 +1,121 @@
+[
+  {
+    "id": "dock",
+    "name": "Old Dock",
+    "x": 0.3,
+    "y": 0.78,
+    "color": "#3b7ea1",
+    "blurb": "Calm water under the planks. Where everyone starts.",
+    "unlock": null,
+    "biteDelay": {
+      "min": 2.5,
+      "max": 6
+    },
+    "castRange": {
+      "min": 14,
+      "max": 36
+    },
+    "predator": {
+      "id": "pred_gull",
+      "name": "Grey Gull",
+      "chance": 0.12
+    }
+  },
+  {
+    "id": "creek",
+    "name": "Stony Creek",
+    "x": 0.68,
+    "y": 0.62,
+    "color": "#4aa3a0",
+    "blurb": "Fast, cold and clear. Needs a stiffer rod.",
+    "unlock": {
+      "rod": 2
+    },
+    "biteDelay": {
+      "min": 2.5,
+      "max": 6.5
+    },
+    "castRange": {
+      "min": 15,
+      "max": 40
+    },
+    "predator": {
+      "id": "pred_otter",
+      "name": "River Otter",
+      "chance": 0.15
+    }
+  },
+  {
+    "id": "pond",
+    "name": "Lily Pond",
+    "x": 0.25,
+    "y": 0.45,
+    "color": "#4f9a5b",
+    "blurb": "Still, weedy, full of carp. Heavy fish, bring stronger line.",
+    "unlock": {
+      "line": 2
+    },
+    "biteDelay": {
+      "min": 3,
+      "max": 7
+    },
+    "castRange": {
+      "min": 20,
+      "max": 50
+    },
+    "predator": {
+      "id": "pred_pike",
+      "name": "Big Pike",
+      "chance": 0.15
+    }
+  },
+  {
+    "id": "falls",
+    "name": "Waterfall Pool",
+    "x": 0.72,
+    "y": 0.28,
+    "color": "#6f8fc9",
+    "blurb": "Deep churning pool. Something huge lives under the falls.",
+    "unlock": {
+      "rod": 3,
+      "line": 3
+    },
+    "biteDelay": {
+      "min": 3,
+      "max": 7
+    },
+    "castRange": {
+      "min": 25,
+      "max": 70
+    },
+    "predator": {
+      "id": "pred_heron",
+      "name": "Night Heron",
+      "chance": 0.1
+    }
+  },
+  {
+    "id": "lake",
+    "name": "Night Lake",
+    "x": 0.5,
+    "y": 0.12,
+    "color": "#2f3f7a",
+    "blurb": "The last page of the logbook. Only reachable with the Old Lantern.",
+    "unlock": {
+      "keyItem": "key_lantern"
+    },
+    "biteDelay": {
+      "min": 3.5,
+      "max": 8
+    },
+    "castRange": {
+      "min": 25,
+      "max": 80
+    },
+    "predator": {
+      "id": "pred_pike",
+      "name": "Big Pike",
+      "chance": 0.1
+    }
+  }
+]
