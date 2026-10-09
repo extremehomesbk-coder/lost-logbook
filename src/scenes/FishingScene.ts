@@ -1,60 +1,75 @@
 import Phaser from 'phaser';
-import type { Fish, Spot } from '../data/schema';
+import type { Fish, Spot, Zone } from '../data/schema';
+import { School, type Bait } from '../game/school';
 import { S } from '../game/session';
 import { BOTTOM, C, H, RARITY_CSS, RARITY_HEX, TIME_SKY, TOP, W, button, hud, panel, sky, text, toast, type Button } from '../game/ui';
-import { candidates, hookResult, lineOutForPower, pickFish, planBite, zoneForPower, type BitePlan } from '../sim/bite';
+import { candidates, hookResult, lineOutForPower, planBite, zoneForPower } from '../sim/bite';
 import { rollSizeCm } from '../sim/economy';
 import { createFight, stepFight, type FightParams, type FightState } from '../sim/fight';
 import { predatorTap, rollPredator, startPredator, stepPredator, type PredatorState } from '../sim/predator';
 import { randomRng } from '../sim/rng';
-import { beginCast, equip, equippable, itemName, lineCapOf, recordCatch, recordLoss, rodOf, spotOf, timeOfDay, type CatchResult } from '../sim/state';
+import { beginCast, equip, equippable, isLure, itemName, lineCapOf, recordCatch, recordLoss, rodOf, spotOf, timeOfDay, type CatchResult } from '../sim/state';
 
 type Phase = 'idle' | 'charging' | 'flying' | 'waiting' | 'fight' | 'predator' | 'result' | 'reveal';
 
-const WATER_TOP = TOP + 150;
-const WATER_BOTTOM = H - BOTTOM - 130;
-const ANGLER = { x: 48, y: WATER_BOTTOM - 10 };
+const WATER_TOP = TOP + 54;
+const WATER_BOTTOM = H - BOTTOM - 168;
+const BANK_H = 46;
+const ANGLER = { x: W / 2, y: WATER_BOTTOM + 22 };
 
-/** The core loop: hold to cast, tap the dip, hold/release to fight, reveal. Input: pointer anywhere on the water or SPACE. */
+/**
+ * The core loop, modelled on the classic handheld fishing adventures: a top-down bank where you aim and hold to
+ * cast, visible fish that notice the bait, circle the float and bite, then a cut to an underwater side view for
+ * the fight (let it run, reel when it rests). Input: pointer on the water, or SPACE / arrow keys on desktop.
+ */
 export class FishingScene extends Phaser.Scene {
   private phase: Phase = 'idle';
   private spot!: Spot;
   private hudRef!: { refresh(): void };
   private hint!: Phaser.GameObjects.Text;
   private bobber!: Phaser.GameObjects.Image;
-  private line!: Phaser.GameObjects.Graphics;
-  private shadow!: Phaser.GameObjects.Image;
+  private castLine!: Phaser.GameObjects.Graphics;
+  private aimLine!: Phaser.GameObjects.Graphics;
   private powerBar!: Phaser.GameObjects.Rectangle;
   private powerFill!: Phaser.GameObjects.Rectangle;
-  private tensionBar!: Phaser.GameObjects.Rectangle;
-  private tensionFill!: Phaser.GameObjects.Rectangle;
-  private tensionLabel!: Phaser.GameObjects.Text;
-  private distFill!: Phaser.GameObjects.Rectangle;
-  private distLabel!: Phaser.GameObjects.Text;
-  private fightUi!: Phaser.GameObjects.Container;
   private baitBtn!: Button;
   private reelInBtn!: Button;
+  private school: School | null = null;
   private holding = false;
+  private pointerX = W / 2;
   private spaceKey?: Phaser.Input.Keyboard.Key;
+  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
 
   // cast
   private power = 0;
   private charge = 0;
+  private aimX = W / 2;
   private landing = new Phaser.Math.Vector2();
+  private lureMoving = false;
+  private usingLure = false;
 
   // bite
-  private bite!: BitePlan;
   private waitT = 0;
-  private nibbleIdx = 0;
-  private dipped = false;
+  private biteAt = Number.POSITIVE_INFINITY;
+  private nibblePlan = { nibbles: 1, gap: 0.8 };
   private hookedFish: Fish | null = null;
+  private sawEligible = false;
 
   // fight
   private fight!: FightState;
   private fightParams!: FightParams;
+  private under!: Phaser.GameObjects.Container;
+  private underFish!: Phaser.GameObjects.Image;
+  private underLine!: Phaser.GameObjects.Graphics;
+  private tensionFill!: Phaser.GameObjects.Rectangle;
+  private tensionLabel!: Phaser.GameObjects.Text;
+  private distFill!: Phaser.GameObjects.Rectangle;
+  private distLabel!: Phaser.GameObjects.Text;
+  private bubbles!: Phaser.GameObjects.Particles.ParticleEmitter;
   private predatorPending = false;
   private predator: PredatorState | null = null;
   private predatorUi: Phaser.GameObjects.Container | null = null;
+  private dismissReveal: (() => void) | null = null;
 
   constructor() {
     super('Fishing');
@@ -68,66 +83,165 @@ export class FishingScene extends Phaser.Scene {
     this.hookedFish = null;
     this.predator = null;
     this.predatorUi = null;
+    this.school = null;
 
     const time = timeOfDay(data, player);
+    const [, , waterTint] = TIME_SKY[time];
     sky(this, time, WATER_TOP);
-    panel(this, 0, WATER_TOP, W, WATER_BOTTOM - WATER_TOP, TIME_SKY[time][2]);
-    const deep = this.add.graphics();
-    deep.fillStyle(0x000000, 0.18);
-    deep.fillRect(0, WATER_TOP, W, 70);
-    deep.fillStyle(0x000000, 0.1);
-    deep.fillRect(0, WATER_TOP + 70, W, 60);
-    // far bank + dock plank
-    this.add.rectangle(0, WATER_TOP - 10, W, 20, 0x3b5c45).setOrigin(0, 0);
-    this.add.rectangle(0, WATER_BOTTOM - 26, 120, 26, 0x6b4f3a).setOrigin(0, 0);
-    // angler placeholder (a rod)
-    this.line = this.add.graphics().setDepth(5);
-    this.add.rectangle(ANGLER.x, ANGLER.y - 30, 6, 90, 0xd0c090).setOrigin(0.5, 1).setAngle(35);
-    panel(this, 0, WATER_BOTTOM, W, H - WATER_BOTTOM, C.panelDark);
+    // top-down water, far bank at the top, our bank at the bottom. Three depth bands.
+    const waterH = WATER_BOTTOM - WATER_TOP;
+    const deepC = Phaser.Display.Color.ValueToColor(waterTint).darken(28).color;
+    const midC = Phaser.Display.Color.ValueToColor(waterTint).darken(10).color;
+    panel(this, 0, WATER_TOP, W, waterH / 3, deepC);
+    panel(this, 0, WATER_TOP + waterH / 3, W, waterH / 3, midC);
+    panel(this, 0, WATER_TOP + (2 * waterH) / 3, W, waterH / 3, waterTint);
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 0.06);
+    for (let i = 0; i < 18; i++) g.fillEllipse((i * 71) % W, WATER_TOP + ((i * 53) % waterH), 50 + (i % 4) * 14, 6);
+    for (let i = 0; i < 6; i++) {
+      const r = this.add.ellipse((i * 67 + 30) % W, WATER_TOP + ((i * 97 + 40) % waterH), 60, 8, 0xffffff, 0.08);
+      this.tweens.add({ targets: r, scaleX: 1.5, alpha: 0, duration: 2600 + i * 300, repeat: -1, delay: i * 400 });
+    }
+    text(this, 8, WATER_TOP + 10, 'DEEP', 10, { color: '#cfe3ee', origin: [0, 0.5] }).setAlpha(0.6);
+    text(this, 8, WATER_TOP + waterH / 3 + 10, 'MID', 10, { color: '#cfe3ee', origin: [0, 0.5] }).setAlpha(0.6);
+    text(this, 8, WATER_TOP + (2 * waterH) / 3 + 10, 'SHALLOW', 10, { color: '#cfe3ee', origin: [0, 0.5] }).setAlpha(0.6);
+    panel(this, 0, WATER_TOP - 12, W, 14, 0x3b5c45); // far bank
+    // our bank with the angler (placeholder: body + rod)
+    panel(this, 0, WATER_BOTTOM, W, BANK_H, 0x6b5a3a);
+    panel(this, 0, WATER_BOTTOM, W, 6, 0x8a7a5a);
+    this.add.circle(ANGLER.x, ANGLER.y, 11, 0xf1c9a0);
+    this.add.rectangle(ANGLER.x, ANGLER.y + 18, 20, 16, 0xd9534f);
+    this.add.rectangle(ANGLER.x + 14, ANGLER.y - 8, 4, 54, 0xd0c090).setOrigin(0.5, 1).setAngle(-20);
+    panel(this, 0, WATER_BOTTOM + BANK_H, W, H - WATER_BOTTOM - BANK_H, C.panelDark);
 
+    this.castLine = this.add.graphics().setDepth(5);
+    this.aimLine = this.add.graphics().setDepth(5);
     this.hudRef = hud(this, this.spot.name);
     button(this, 40, TOP - 20, 64, 34, '‹ Map', () => this.leave(), { size: 15, fill: C.panel });
 
-    this.bobber = this.add.image(ANGLER.x + 40, ANGLER.y - 60, 'bobber').setDepth(6).setVisible(false);
-    this.shadow = this.add.image(0, 0, 'fish_dock_perch').setDepth(4).setTint(0x000000).setAlpha(0.35).setVisible(false);
+    this.bobber = this.add.image(0, 0, 'bobber').setDepth(6).setVisible(false);
 
     // bottom controls
-    this.hint = text(this, W / 2, WATER_BOTTOM + 36, '', 18, { bold: true, wrap: W - 40 });
+    this.hint = text(this, W / 2, WATER_BOTTOM + BANK_H + 30, '', 17, { bold: true, wrap: W - 30 });
     this.baitBtn = button(this, W / 2, H - BOTTOM - 36, W - 24, 48, '', () => this.cycleBait(), { size: 15, fill: C.panel });
-    this.reelInBtn = button(this, W - 60, WATER_TOP + 22, 96, 34, 'Reel in', () => this.cancelWait(), { size: 14, fill: C.panel }).setVisible(false);
+    this.reelInBtn = button(this, W - 60, WATER_TOP + 22, 96, 34, 'Reel in', () => this.cancelWait(), { size: 14, fill: C.panel }).setVisible(false).setDepth(10);
     this.refreshBaitBtn();
 
-    // power bar
-    this.powerBar = this.add.rectangle(W / 2, WATER_BOTTOM + 76, W - 60, 18, 0x000000, 0.6).setVisible(false);
-    this.powerFill = this.add.rectangle(30, WATER_BOTTOM + 76, 0, 14, C.accent).setOrigin(0, 0.5).setVisible(false);
+    this.powerBar = this.add.rectangle(W / 2, WATER_BOTTOM + BANK_H + 64, W - 60, 18, 0x000000, 0.6).setVisible(false);
+    this.powerFill = this.add.rectangle(30, WATER_BOTTOM + BANK_H + 64, 0, 14, C.accent).setOrigin(0, 0.5).setVisible(false);
 
-    // fight UI
-    this.fightUi = this.add.container(0, 0).setVisible(false).setDepth(20);
-    this.tensionBar = this.add.rectangle(W / 2, WATER_TOP + 24, W - 48, 26, 0x000000, 0.65);
-    this.tensionFill = this.add.rectangle(24, WATER_TOP + 24, 0, 20, C.good).setOrigin(0, 0.5);
-    const dangerZone = this.add.rectangle(24 + (W - 48) * 0.8, WATER_TOP + 24, (W - 48) * 0.2, 20, C.danger, 0.35).setOrigin(0, 0.5);
-    this.tensionLabel = text(this, W / 2, WATER_TOP + 24, 'TENSION', 12, { bold: true, stroke: true });
-    const distBar = this.add.rectangle(W / 2, WATER_TOP + 52, W - 48, 12, 0x000000, 0.5);
-    this.distFill = this.add.rectangle(24, WATER_TOP + 52, 0, 8, 0xffffff, 0.8).setOrigin(0, 0.5);
-    this.distLabel = text(this, W / 2, WATER_TOP + 70, '', 12, { color: C.text, stroke: true });
-    this.fightUi.add([this.tensionBar, this.tensionFill, dangerZone, this.tensionLabel, distBar, this.distFill, this.distLabel]);
+    this.buildUnderwater();
+    this.spawnSchool();
 
-    // input: the water zone starts actions, the global pointerup ends holds
-    const zone = this.add.zone(0, TOP + 44, W, WATER_BOTTOM + 60 - (TOP + 44)).setOrigin(0, 0).setInteractive();
-    zone.on('pointerdown', () => this.press());
+    // input
+    const zone = this.add.zone(0, TOP + 44, W, WATER_BOTTOM + BANK_H - (TOP + 44)).setOrigin(0, 0).setInteractive();
+    zone.on('pointerdown', (p: Phaser.Input.Pointer) => { this.pointerX = p.x; this.press(); });
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => { this.pointerX = p.x; });
     this.input.on('pointerup', () => this.release());
     this.spaceKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.cursors = this.input.keyboard?.createCursorKeys();
     this.input.keyboard?.on('keydown-SPACE', (e: KeyboardEvent) => { e.preventDefault(); if (!e.repeat) this.press(); });
     this.input.keyboard?.on('keyup-SPACE', () => this.release());
     this.input.keyboard?.on('keydown-ESC', () => this.leave());
-
-    this.setHint('HOLD the water to cast. Longer hold = farther.');
     this.events.once('shutdown', () => {
       this.input.keyboard?.removeAllListeners();
+      this.school?.destroy();
     });
+
+    this.setHint('HOLD on the water to cast. Slide to aim, longer hold = farther out.');
   }
 
-  // ---------- helpers ----------
+  // ---------- setup helpers ----------
+
+  private bands(): Record<Zone, { top: number; bottom: number }> {
+    const h = (WATER_BOTTOM - WATER_TOP) / 3;
+    return {
+      deep: { top: WATER_TOP + 14, bottom: WATER_TOP + h - 8 },
+      mid: { top: WATER_TOP + h + 8, bottom: WATER_TOP + 2 * h - 8 },
+      shallow: { top: WATER_TOP + 2 * h + 8, bottom: WATER_BOTTOM - 16 },
+    };
+  }
+
+  /** (Re)populate the water with fish for the current bait and time. */
+  private spawnSchool(): void {
+    const { data, player } = S();
+    this.school?.destroy();
+    const time = timeOfDay(data, player);
+    const zones: Zone[] = ['shallow', 'mid', 'deep'];
+    const eligible = {} as Record<Zone, Fish[]>;
+    const others = {} as Record<Zone, Fish[]>;
+    for (const z of zones) {
+      eligible[z] = candidates(data.fish, this.spot.id, z, time, player.equipped, player.log);
+      others[z] = data.fish.filter(
+        (f) => f.spots.includes(this.spot.id) && f.zones.includes(z) && f.times.includes(time) && !eligible[z].includes(f) && !(f.once && f.id in player.log),
+      );
+    }
+    this.school = new School(
+      this,
+      data.config.school,
+      { left: 10, right: W - 10, top: WATER_TOP + 12, bottom: WATER_BOTTOM - 14 },
+      this.bands(),
+      { eligible, others },
+      data.config.rarityWeight,
+      randomRng,
+    );
+  }
+
+  private buildUnderwater(): void {
+    this.under = this.add.container(0, 0).setVisible(false).setDepth(20);
+    const h = WATER_BOTTOM + BANK_H - WATER_TOP;
+    const bg = this.add.graphics();
+    const steps = 16;
+    for (let i = 0; i < steps; i++) {
+      const c = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.ValueToColor(0x2a7a94),
+        Phaser.Display.Color.ValueToColor(0x061a26),
+        steps,
+        i,
+      );
+      bg.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
+      bg.fillRect(0, WATER_TOP + (h / steps) * i, W, h / steps + 1);
+    }
+    bg.fillStyle(0xcfe8f3, 0.9);
+    bg.fillRect(0, WATER_TOP, W, 4);
+    bg.fillStyle(0x3a2e1f, 1);
+    bg.fillRect(0, WATER_BOTTOM + BANK_H - 18, W, 18);
+    for (let i = 0; i < 9; i++) {
+      bg.fillStyle(0x2f5a3a, 1);
+      bg.fillEllipse(20 + i * 45, WATER_BOTTOM + BANK_H - 22, 10, 40 + (i % 3) * 14);
+    }
+    this.under.add(bg);
+    this.underLine = this.add.graphics();
+    this.under.add(this.underLine);
+    this.underFish = this.add.image(W / 2, WATER_TOP + h / 2, 'fish_dock_perch');
+    this.under.add(this.underFish);
+    this.bubbles = this.add.particles(0, 0, 'spark', {
+      speedY: { min: -40, max: -90 },
+      speedX: { min: -10, max: 10 },
+      lifespan: 1400,
+      scale: { start: 0.35, end: 0.1 },
+      alpha: { start: 0.7, end: 0 },
+      quantity: 1,
+      frequency: 120,
+      emitting: false,
+    });
+    this.under.add(this.bubbles);
+
+    const barY = WATER_TOP + 26;
+    this.under.add(this.add.rectangle(W / 2, barY, W - 48, 26, 0x000000, 0.65));
+    this.tensionFill = this.add.rectangle(24, barY, 0, 20, C.good).setOrigin(0, 0.5);
+    this.under.add(this.tensionFill);
+    this.under.add(this.add.rectangle(24 + (W - 48) * 0.8, barY, (W - 48) * 0.2, 20, C.danger, 0.35).setOrigin(0, 0.5));
+    this.tensionLabel = text(this, W / 2, barY, 'TENSION', 12, { bold: true, stroke: true });
+    this.under.add(this.tensionLabel);
+    this.under.add(this.add.rectangle(W / 2, barY + 28, W - 48, 12, 0x000000, 0.5));
+    this.distFill = this.add.rectangle(24, barY + 28, 0, 8, 0xffffff, 0.8).setOrigin(0, 0.5);
+    this.under.add(this.distFill);
+    this.distLabel = text(this, W / 2, barY + 48, '', 12, { color: C.text, stroke: true });
+    this.under.add(this.distLabel);
+  }
+
+  // ---------- small helpers ----------
 
   private setHint(s: string, color = C.text): void {
     this.hint.setText(s).setColor(color);
@@ -145,8 +259,8 @@ export class FishingScene extends Phaser.Scene {
   private refreshBaitBtn(): void {
     const { data, player } = S();
     const n = player.inventory[player.equipped] ?? 0;
-    const isLure = data.gear.lures.some((l) => l.id === player.equipped);
-    this.baitBtn.setText(`On the hook: ${itemName(data, player.equipped)}${isLure ? ' (lure)' : ` ×${n}`}   ▸ tap to change`);
+    const lure = isLure(data, player.equipped);
+    this.baitBtn.setText(`On the hook: ${itemName(data, player.equipped)}${lure ? ' (lure)' : ` ×${n}`}   ▸ tap to change`);
     this.hudRef.refresh();
   }
 
@@ -159,10 +273,15 @@ export class FishingScene extends Phaser.Scene {
       return;
     }
     const i = options.findIndex((o) => o.id === player.equipped);
-    const next = options[(i + 1) % options.length];
-    equip(data, player, next.id);
+    equip(data, player, options[(i + 1) % options.length].id);
     S().save();
     this.refreshBaitBtn();
+    this.spawnSchool();
+  }
+
+  private bait(): Bait | null {
+    if (this.phase !== 'waiting') return null;
+    return { x: this.bobber.x, y: this.bobber.y, moving: this.usingLure && this.lureMoving, isLure: this.usingLure };
   }
 
   // ---------- input ----------
@@ -173,7 +292,10 @@ export class FishingScene extends Phaser.Scene {
         this.startCharge();
         break;
       case 'waiting':
-        this.tryHook();
+        if (this.usingLure) {
+          this.holding = true;
+          if (this.biteAt !== Number.POSITIVE_INFINITY) this.tryHook();
+        } else this.tryHook();
         break;
       case 'fight':
         this.holding = true;
@@ -206,79 +328,97 @@ export class FishingScene extends Phaser.Scene {
     this.phase = 'charging';
     this.charge = 0;
     this.power = 0;
+    this.aimX = Phaser.Math.Clamp(this.pointerX, 30, W - 30);
     this.powerBar.setVisible(true);
     this.powerFill.setVisible(true);
-    this.setHint('Building power... release to cast');
   }
 
   private castNow(): void {
     const { data, player } = S();
     const r = beginCast(data, player);
+    this.powerBar.setVisible(false);
+    this.powerFill.setVisible(false);
+    this.aimLine.clear();
     if (!r.ok) {
       toast(this, r.reason, C.dangerCss);
       this.phase = 'idle';
-      this.powerBar.setVisible(false);
-      this.powerFill.setVisible(false);
       return;
     }
     S().save();
     this.refreshBaitBtn();
     this.phase = 'flying';
-    this.powerBar.setVisible(false);
-    this.powerFill.setVisible(false);
+    this.usingLure = isLure(data, player.equipped);
     const zoneName = zoneForPower(this.power, data.config.cast.zones);
-    // farther casts land higher (deeper water) and to the right
-    const tx = ANGLER.x + 70 + this.power * (W - 150);
-    const ty = WATER_BOTTOM - 50 - this.power * (WATER_BOTTOM - WATER_TOP - 90);
-    this.landing.set(tx, ty);
-    this.bobber.setPosition(ANGLER.x + 40, ANGLER.y - 70).setVisible(true).setScale(1);
-    this.setHint(`Cast to ${zoneName} water...`);
+    const b = this.bands();
+    const band = b[zoneName];
+    // farther = higher on screen; the zone decides the band, the power decides where inside it
+    const t = zoneName === 'shallow' ? this.power / data.config.cast.zones.shallow
+      : zoneName === 'mid' ? (this.power - data.config.cast.zones.shallow) / (data.config.cast.zones.mid - data.config.cast.zones.shallow)
+        : (this.power - data.config.cast.zones.mid) / (1 - data.config.cast.zones.mid);
+    const ty = Phaser.Math.Linear(band.bottom, band.top, Phaser.Math.Clamp(t, 0, 1));
+    this.landing.set(this.aimX, ty);
+    this.bobber.setPosition(ANGLER.x + 14, ANGLER.y - 60).setVisible(true).setScale(1).clearTint().setAlpha(1);
+    this.setHint(`Casting to ${zoneName} water...`);
     this.tweens.add({
       targets: this.bobber,
-      x: tx,
+      x: this.aimX,
       y: ty,
       duration: data.config.cast.flightSeconds * 1000,
       ease: 'Quad.easeOut',
-      onComplete: () => this.startWaiting(zoneName),
+      onComplete: () => this.startWaiting(),
     });
   }
 
-  private startWaiting(zone: 'shallow' | 'mid' | 'deep'): void {
-    const { data, player } = S();
+  private startWaiting(): void {
+    const { data } = S();
     this.phase = 'waiting';
     this.waitT = 0;
-    this.nibbleIdx = 0;
-    this.dipped = false;
+    this.biteAt = Number.POSITIVE_INFINITY;
+    this.hookedFish = null;
+    this.lureMoving = false;
+    this.sawEligible = this.school?.anyEligible ?? false;
+    const plan = planBite(data.config.bite, this.spot, randomRng);
+    const gaps = plan.nibbleTimes.length ? (plan.dipAt - plan.nibbleTimes[0]) / plan.nibbleTimes.length : data.config.bite.nibbleGap.max;
+    this.nibblePlan = { nibbles: plan.nibbleTimes.length, gap: Math.max(0.3, gaps) };
     this.splash(this.landing.x, this.landing.y);
-    const time = timeOfDay(data, player);
-    const cands = candidates(data.fish, this.spot.id, zone, time, player.equipped, player.log);
-    this.hookedFish = pickFish(cands, data.config.rarityWeight, randomRng);
-    this.bite = planBite(data.config.bite, this.spot, randomRng);
-    if (!this.hookedFish) this.bite = { waitSeconds: 0, nibbleTimes: [], dipAt: Number.POSITIVE_INFINITY };
-    this.setHint('Watch the bobber. TAP when it dips!');
-    this.reelInBtn.setVisible(true);
+    this.reelInBtn.setVisible(!this.usingLure);
+    this.setHint(this.usingLure ? 'HOLD to retrieve the lure in pulses. Fish chase it while it moves.' : 'Watch the fish. When one takes the float, TAP!');
   }
 
   private cancelWait(): void {
     if (this.phase !== 'waiting') return;
+    this.school?.spook(this.bait());
+    this.endWait('Reeled in. HOLD to cast again.');
+  }
+
+  private endWait(hintText: string): void {
     this.reelInBtn.setVisible(false);
     this.bobber.setVisible(false);
+    this.castLine.clear();
     this.phase = 'idle';
-    this.setHint('Reeled in. HOLD to cast again.');
+    this.biteAt = Number.POSITIVE_INFINITY;
+    this.setHint(hintText);
   }
 
   private tryHook(): void {
     const { data } = S();
-    const r = hookResult(this.waitT, this.bite.dipAt, data.config.bite.hookWindowSeconds);
+    const r = hookResult(this.waitT, this.biteAt, data.config.bite.hookWindowSeconds);
     if (r === 'hooked' && this.hookedFish) {
       this.startFight(this.hookedFish);
       return;
     }
     if (r === 'early') {
-      if (!data.config.bite.earlyTapSpooks && this.hookedFish) return;
-      this.loseFish(this.hookedFish ? 'Too early! You spooked it.' : 'Nothing there yet... and now it is gone.');
+      const engaged = this.school?.actors.find((a) => a.state === 'circle' || a.state === 'approach');
+      if (engaged && data.config.bite.earlyTapSpooks) {
+        this.school?.spook(this.bait());
+        this.loseFish('Too early! You yanked it away and spooked the fish.', false, false);
+      } else if (!this.usingLure) {
+        this.school?.spook(this.bait());
+        this.loseFish('Nothing on yet. The splash scared them off.', false, false);
+      }
       return;
     }
+    this.school?.spook(this.bait());
     this.loseFish('Too late! It spat the hook.');
   }
 
@@ -289,7 +429,9 @@ export class FishingScene extends Phaser.Scene {
     this.phase = 'fight';
     this.reelInBtn.setVisible(false);
     this.holding = true;
-    this.cameras.main.shake(120, 0.004);
+    this.school?.takeEngaged();
+    this.cameras.main.flash(180, 255, 255, 255);
+    this.cameras.main.shake(140, 0.005);
     this.fightParams = {
       fish: fish.fight,
       bossPhases: fish.boss?.phases,
@@ -301,10 +443,12 @@ export class FishingScene extends Phaser.Scene {
     };
     this.fight = createFight(this.fightParams);
     this.predatorPending = !!this.spot.predator && rollPredator(this.spot.predator.chance, !!fish.boss, randomRng);
-    this.fightUi.setVisible(true);
-    this.shadow.setTexture(`fish_${fish.id}`).setVisible(true).setScale(0.6 + 0.5 * (fish.sizeCm.max / 190)).setTint(0x000000).setAlpha(0.35);
     this.bobber.setVisible(false);
-    this.setHint(fish.boss ? 'Something enormous is on! HOLD to reel, release when it runs.' : 'HOOKED! HOLD to reel. Release when it runs.', C.accentCss);
+    this.castLine.clear();
+    this.under.setVisible(true);
+    this.underFish.setTexture(`fish_${fish.id}`).setScale(0.9 + 1.1 * Math.min(1, fish.sizeCm.max / 190)).clearTint();
+    this.bubbles.start();
+    this.setHint(fish.boss ? 'Something enormous. Let it run. Reel only when it rests.' : 'HOOKED! Let it run, reel when it rests. Release the moment it pulls.', C.accentCss);
     this.flash('HOOKED!', C.accentCss, 44);
   }
 
@@ -312,7 +456,7 @@ export class FishingScene extends Phaser.Scene {
     const reeling = this.holding || !!this.spaceKey?.isDown;
     stepFight(this.fight, this.fightParams, dt, reeling);
     for (const e of this.fight.events) {
-      if (e.type === 'run') this.flash('It runs! Let go!', '#9fd3e6', 26);
+      if (e.type === 'run') this.flash('It pulls! Let go!', '#9fd3e6', 26);
       if (e.type === 'tired') this.flash('It is tiring...', C.goodCss, 24);
       if (e.type === 'phase') {
         this.flash(e.label, RARITY_CSS.rare, 32);
@@ -323,15 +467,27 @@ export class FishingScene extends Phaser.Scene {
     const frac = Phaser.Math.Clamp(f.tension / this.fightParams.lineCap, 0, 1);
     this.tensionFill.width = (W - 48) * frac;
     this.tensionFill.setFillStyle(frac > 0.8 ? C.danger : frac > 0.55 ? C.accent : C.good);
-    this.tensionLabel.setText(f.running ? 'RUNNING – release!' : frac > 0.8 ? 'DANGER' : frac < 0.1 ? 'SLACK!' : reeling ? 'REELING' : 'LINE OUT');
+    this.tensionLabel.setText(f.running ? 'PULLING – release!' : frac > 0.8 ? 'DANGER' : frac < 0.1 ? 'SLACK!' : reeling ? 'REELING' : 'RESTING – reel now');
     const dfrac = Phaser.Math.Clamp(1 - f.lineOut / f.startLineOut, 0, 1);
     this.distFill.width = (W - 48) * dfrac;
-    this.distLabel.setText(`${Math.max(0, f.lineOut).toFixed(0)} m out · stamina ${(f.stamina * 100).toFixed(0)}%`);
-    // shadow moves from the landing point toward the angler as line comes in
+    this.distLabel.setText(`${Math.max(0, f.lineOut).toFixed(0)} m out · fish ${(f.stamina * 100).toFixed(0)}% fresh`);
+
+    // underwater view: fish at a distance proportional to line out, swimming away while it runs
     const t = Phaser.Math.Clamp(f.lineOut / f.startLineOut, 0, 1.5);
-    this.shadow.setPosition(Phaser.Math.Linear(ANGLER.x + 60, this.landing.x, t), Phaser.Math.Linear(ANGLER.y - 40, this.landing.y, t));
-    this.shadow.setFlipX(!f.running);
-    this.drawLine(this.shadow.x, this.shadow.y, frac);
+    const fx = Phaser.Math.Linear(70, W - 50, t);
+    const fy = WATER_TOP + 150 + Math.sin(f.elapsed * (f.running ? 14 : 3)) * (f.running ? 10 : 4) + (1 - f.stamina) * 60;
+    this.underFish.setPosition(fx, fy).setFlipX(f.running);
+    this.underFish.setTint(f.running ? 0xffb0a0 : 0xffffff);
+    this.underFish.setAngle(f.running ? Math.sin(f.elapsed * 30) * 10 : Math.sin(f.elapsed * 3) * 4);
+    this.bubbles.setPosition(fx - 20, fy);
+    this.underLine.clear();
+    this.underLine.lineStyle(2, frac > 0.8 ? C.danger : C.line, 0.95);
+    const sag = (1 - frac) * 50;
+    this.underLine.beginPath();
+    this.underLine.moveTo(30, WATER_TOP + 4);
+    this.underLine.lineTo((30 + fx) / 2, (WATER_TOP + fy) / 2 + sag);
+    this.underLine.lineTo(fx - 30, fy);
+    this.underLine.strokePath();
 
     if (this.predatorPending && f.stamina < S().data.config.predator.triggerStaminaBelow && f.outcome === 'fighting') {
       this.predatorPending = false;
@@ -341,20 +497,6 @@ export class FishingScene extends Phaser.Scene {
     if (f.outcome === 'landed') this.land();
     else if (f.outcome === 'snapped') this.loseFish('SNAP! The line broke.', true);
     else if (f.outcome === 'escaped') this.loseFish('The line went slack. It slipped the hook.');
-  }
-
-  private drawLine(x: number, y: number, tension: number): void {
-    this.line.clear();
-    const color = tension > 0.8 ? C.danger : C.line;
-    this.line.lineStyle(2, color, 0.9);
-    const tipX = ANGLER.x + 52;
-    const tipY = ANGLER.y - 102;
-    const sag = (1 - tension) * 40;
-    this.line.beginPath();
-    this.line.moveTo(tipX, tipY);
-    this.line.lineTo((tipX + x) / 2, (tipY + y) / 2 + sag);
-    this.line.lineTo(x, y);
-    this.line.strokePath();
   }
 
   // ---------- predator ----------
@@ -373,7 +515,7 @@ export class FishingScene extends Phaser.Scene {
     c.add(text(this, W / 2, WATER_TOP + 60, `${pred.name} wants your fish!`, 26, { bold: true, stroke: true, color: C.dangerCss }));
     const counter = text(this, W / 2, WATER_TOP + 260, `TAP ×${data.config.predator.taps}`, 48, { bold: true, stroke: true });
     c.add(counter);
-    const bar = this.add.rectangle(W / 2, WATER_TOP + 320, W - 80, 16, C.danger).setOrigin(0.5, 0.5);
+    const bar = this.add.rectangle(W / 2, WATER_TOP + 320, W - 80, 16, C.danger);
     c.add(bar);
     c.setData('counter', counter);
     c.setData('bar', bar);
@@ -414,22 +556,22 @@ export class FishingScene extends Phaser.Scene {
 
   // ---------- outcomes ----------
 
-  private loseFish(reason: string, snap = false): void {
+  private loseFish(reason: string, snap = false, countsAsLoss = true): void {
     const { player } = S();
-    if (this.phase === 'fight' || this.phase === 'predator' || (this.phase === 'waiting' && this.hookedFish)) recordLoss(player);
+    if (countsAsLoss) recordLoss(player);
     S().save();
     this.phase = 'result';
     this.reelInBtn.setVisible(false);
-    this.fightUi.setVisible(false);
-    this.shadow.setVisible(false);
+    this.under.setVisible(false);
+    this.bubbles.stop();
     this.bobber.setVisible(false);
-    this.line.clear();
+    this.castLine.clear();
     if (snap) this.cameras.main.shake(300, 0.012);
-    this.flash(reason, C.dangerCss, snap ? 40 : 28);
+    this.flash(reason, C.dangerCss, snap ? 40 : 26);
     this.setHint(reason, C.dangerCss);
     this.time.delayedCall(1300, () => {
       this.phase = 'idle';
-      this.setHint('HOLD the water to cast again.');
+      this.setHint('HOLD on the water to cast again.');
       this.hudRef.refresh();
     });
   }
@@ -440,16 +582,14 @@ export class FishingScene extends Phaser.Scene {
     const size = rollSizeCm(fish, randomRng);
     const result = recordCatch(data, player, fish, size, timeOfDay(data, player));
     S().save();
-    this.fightUi.setVisible(false);
-    this.shadow.setVisible(false);
-    this.line.clear();
+    this.under.setVisible(false);
+    this.bubbles.stop();
     this.phase = 'reveal';
     this.hudRef.refresh();
     this.setHint(`Landed a ${fish.name}!`, C.goodCss);
     this.showReveal(fish, size, result);
+    if (fish.once) this.spawnSchool();
   }
-
-  private dismissReveal: (() => void) | null = null;
 
   /** The catch card. Must read instantly with the sound off: big rarity word, big size, colour-coded frame. */
   private showReveal(fish: Fish, size: number, r: CatchResult): void {
@@ -457,14 +597,14 @@ export class FishingScene extends Phaser.Scene {
     const rar = fish.rarity;
     const hold = data.config.reveal[`${rar}Seconds`] * 1000;
     const c = this.add.container(0, 0).setDepth(100);
-    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, rar === 'legendary' ? 0.85 : 0.6);
-    c.add(dim);
+    c.add(this.add.rectangle(W / 2, H / 2, W, H, 0x000000, rar === 'legendary' ? 0.85 : 0.6));
 
     if (rar === 'rare' || rar === 'legendary') {
       this.cameras.main.flash(300, 255, 230, 150);
       this.cameras.main.shake(300, 0.01);
-      for (let i = 0; i < (rar === 'legendary' ? 16 : 8); i++) {
-        const ray = this.add.image(W / 2, H * 0.4, 'ray').setOrigin(0, 0.5).setTint(RARITY_HEX[rar]).setAlpha(0.18).setAngle((360 / (rar === 'legendary' ? 16 : 8)) * i);
+      const n = rar === 'legendary' ? 16 : 8;
+      for (let i = 0; i < n; i++) {
+        const ray = this.add.image(W / 2, H * 0.4, 'ray').setOrigin(0, 0.5).setTint(RARITY_HEX[rar]).setAlpha(0.18).setAngle((360 / n) * i);
         c.add(ray);
         this.tweens.add({ targets: ray, angle: ray.angle + 40, duration: 6000, repeat: -1 });
       }
@@ -474,8 +614,7 @@ export class FishingScene extends Phaser.Scene {
     const img = this.add.image(W / 2, H * 0.42 - 70, `fish_${fish.id}`).setScale(1.6 + 1.2 * (size / 190));
     c.add(img);
     this.tweens.add({ targets: img, scale: img.scale * 1.06, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    const rarityWord = rar === 'legendary' ? 'LEGENDARY' : rar.toUpperCase();
-    const rt = text(this, W / 2, H * 0.42 - 150, rarityWord, rar === 'legendary' ? 44 : rar === 'rare' ? 34 : 20, { bold: true, color: RARITY_CSS[rar], stroke: true });
+    const rt = text(this, W / 2, H * 0.42 - 150, rar === 'legendary' ? 'LEGENDARY' : rar.toUpperCase(), rar === 'legendary' ? 44 : rar === 'rare' ? 34 : 20, { bold: true, color: RARITY_CSS[rar], stroke: true });
     c.add(rt);
     if (rar !== 'common') this.tweens.add({ targets: rt, scale: 1.1, duration: 400, yoyo: true, repeat: -1 });
     c.add(text(this, W / 2, H * 0.42 + 10, fish.name, 28, { bold: true }));
@@ -493,28 +632,16 @@ export class FishingScene extends Phaser.Scene {
     if (rar === 'legendary') extras.push(fish.blurb);
     c.add(text(this, W / 2, H * 0.42 + 200, extras.join('\n'), 17, { bold: true, color: C.accentCss, wrap: W - 60 }));
     if (rar === 'legendary') {
-      const legendT = text(this, W / 2, H * 0.42 + 270, 'You caught the one from the logbook.', 18, { color: RARITY_CSS.legendary, bold: true, wrap: W - 60 });
-      c.add(legendT);
+      c.add(text(this, W / 2, H * 0.42 + 270, 'You caught the one from the logbook.', 18, { color: RARITY_CSS.legendary, bold: true, wrap: W - 60 }));
       const emitter = this.add.particles(0, 0, 'spark', {
-        x: { min: 0, max: W },
-        y: -10,
-        lifespan: 3500,
-        speedY: { min: 60, max: 160 },
-        speedX: { min: -30, max: 30 },
-        scale: { start: 0.9, end: 0.2 },
-        tint: [0xff6ad5, 0xf2b63c, 0x6fd38a, 0xffffff],
-        quantity: 2,
-        frequency: 60,
+        x: { min: 0, max: W }, y: -10, lifespan: 3500, speedY: { min: 60, max: 160 }, speedX: { min: -30, max: 30 },
+        scale: { start: 0.9, end: 0.2 }, tint: [0xff6ad5, 0xf2b63c, 0x6fd38a, 0xffffff], quantity: 2, frequency: 60,
       });
       emitter.setDepth(101);
       c.add(emitter);
     } else if (rar !== 'common') {
       const burst = this.add.particles(W / 2, H * 0.42 - 70, 'spark', {
-        speed: { min: 80, max: 260 },
-        lifespan: 900,
-        scale: { start: 0.8, end: 0 },
-        tint: RARITY_HEX[rar],
-        emitting: false,
+        speed: { min: 80, max: 260 }, lifespan: 900, scale: { start: 0.8, end: 0 }, tint: RARITY_HEX[rar], emitting: false,
       });
       burst.setDepth(101);
       c.add(burst);
@@ -523,7 +650,6 @@ export class FishingScene extends Phaser.Scene {
     const tapHint = text(this, W / 2, H - BOTTOM - 60, 'tap to continue', 14, { color: C.muted }).setAlpha(0);
     c.add(tapHint);
     this.tweens.add({ targets: tapHint, alpha: 1, delay: Math.max(600, hold * 0.6), duration: 300 });
-
     card.setScale(0.6);
     this.tweens.add({ targets: card, scale: 1, duration: 260, ease: 'Back.easeOut' });
 
@@ -536,7 +662,7 @@ export class FishingScene extends Phaser.Scene {
       this.phase = 'idle';
       this.hudRef.refresh();
       this.refreshBaitBtn();
-      this.setHint(rar === 'legendary' ? 'Fifty years. Nobody. Until you. (Keep fishing, or visit the shop.)' : 'HOLD the water to cast again.');
+      this.setHint(rar === 'legendary' ? 'Fifty years. Nobody. Until you. (Keep fishing, or visit the shop.)' : 'HOLD on the water to cast again.');
     };
     this.time.delayedCall(hold + 6000, () => this.dismissReveal?.());
   }
@@ -551,14 +677,22 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private splash(x: number, y: number): void {
-    const ring = this.add.ellipse(x, y + 8, 20, 8).setStrokeStyle(2, 0xffffff, 0.8).setDepth(5);
+    const ring = this.add.ellipse(x, y + 4, 20, 12).setStrokeStyle(2, 0xffffff, 0.8).setDepth(5);
     this.tweens.add({ targets: ring, scaleX: 3.5, scaleY: 3, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
   }
 
-  private nibble(strength: number): void {
-    this.tweens.add({ targets: this.bobber, y: this.landing.y + 6 * strength, duration: 90, yoyo: true, repeat: 1 });
-    const ring = this.add.ellipse(this.landing.x, this.landing.y + 8, 16, 6).setStrokeStyle(1.5, 0xffffff, 0.6).setDepth(5);
-    this.tweens.add({ targets: ring, scaleX: 2.5, scaleY: 2, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
+  private nibble(): void {
+    this.tweens.add({ targets: this.bobber, y: this.bobber.y + 5, duration: 90, yoyo: true, repeat: 1 });
+    this.bobber.setTint(0xffe27a);
+    this.time.delayedCall(220, () => { if (this.biteAt === Number.POSITIVE_INFINITY) this.bobber.clearTint(); });
+    const ring = this.add.ellipse(this.bobber.x, this.bobber.y + 4, 16, 10).setStrokeStyle(1.5, 0xffe27a, 0.8).setDepth(5);
+    this.tweens.add({ targets: ring, scaleX: 2.5, scaleY: 2.5, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
+  }
+
+  private drawCastLine(): void {
+    this.castLine.clear();
+    this.castLine.lineStyle(1.5, C.line, 0.7);
+    this.castLine.lineBetween(ANGLER.x + 14 + 18, ANGLER.y - 58, this.bobber.x, this.bobber.y);
   }
 
   // ---------- loop ----------
@@ -567,41 +701,77 @@ export class FishingScene extends Phaser.Scene {
     const dt = Math.min(0.05, deltaMs / 1000);
     S().player.stats.playSeconds += dt;
     const { data } = S();
+    const cfg = data.config;
+
+    if (this.phase !== 'fight' && this.phase !== 'predator' && this.school) {
+      const events = this.school.update(dt, this.bait(), this.nibblePlan);
+      for (const e of events) {
+        if (this.phase !== 'waiting') continue;
+        if (e.type === 'nibble') this.nibble();
+        else if (e.type === 'inspect') this.flash(`${e.actor.fish.name}: not interested in ${itemName(data, S().player.equipped)}`, '#cfe3ee', 15);
+        else if (e.type === 'bite') {
+          this.hookedFish = e.actor.fish;
+          this.biteAt = this.waitT;
+          this.bobber.setTint(0xffe27a).setY(this.bobber.y + 10).setAlpha(0.8);
+          this.splash(this.bobber.x, this.bobber.y);
+          if (this.usingLure && this.holding) {
+            // line already tight: a strike on a moving lure hooks itself
+            this.startFight(this.hookedFish);
+            return;
+          }
+          this.setHint('TAP NOW!', C.accentCss);
+        }
+      }
+    }
+
     switch (this.phase) {
       case 'charging': {
         this.charge += dt;
-        this.power = Phaser.Math.Clamp(this.charge / data.config.cast.chargeSeconds, 0, 1);
+        this.power = Phaser.Math.Clamp(this.charge / cfg.cast.chargeSeconds, 0, 1);
+        if (this.cursors?.left.isDown) this.pointerX -= 220 * dt;
+        if (this.cursors?.right.isDown) this.pointerX += 220 * dt;
+        this.aimX = Phaser.Math.Clamp(this.pointerX, 30, W - 30);
         this.powerFill.width = (W - 60) * this.power;
-        const zoneName = zoneForPower(this.power, data.config.cast.zones);
+        const zoneName = zoneForPower(this.power, cfg.cast.zones);
         this.powerFill.setFillStyle(zoneName === 'deep' ? 0x6f8fc9 : zoneName === 'mid' ? C.accent : C.good);
-        this.setHint(`Power: ${zoneName.toUpperCase()} water — release to cast`);
+        const band = this.bands()[zoneName];
+        this.aimLine.clear();
+        this.aimLine.lineStyle(2, 0xffffff, 0.5);
+        this.aimLine.lineBetween(ANGLER.x + 32, ANGLER.y - 58, this.aimX, (band.top + band.bottom) / 2);
+        this.aimLine.strokeCircle(this.aimX, (band.top + band.bottom) / 2, 14);
+        this.setHint(`Aim: ${zoneName.toUpperCase()} water — release to cast`);
         break;
       }
       case 'waiting': {
         this.waitT += dt;
-        if (!this.hookedFish) {
-          if (this.waitT >= data.config.bite.nothingBitingSeconds) {
-            this.reelInBtn.setVisible(false);
-            this.bobber.setVisible(false);
-            this.phase = 'idle';
-            toast(this, 'Nothing is biting on this here, now. Try another bait, depth or time.', C.muted);
-            this.setHint('HOLD the water to cast again.');
+        this.drawCastLine();
+        if (this.usingLure) {
+          this.lureMoving = this.holding || !!this.spaceKey?.isDown;
+          if (this.lureMoving && this.biteAt === Number.POSITIVE_INFINITY) {
+            const dx = ANGLER.x + 32 - this.bobber.x;
+            const dy = ANGLER.y - 58 - this.bobber.y;
+            const d = Math.hypot(dx, dy);
+            const step = cfg.school.lure.retrieveSpeed * dt;
+            if (d < 24) {
+              this.endWait('Lure back in. HOLD to cast again.');
+              break;
+            }
+            this.bobber.x += (dx / d) * step;
+            this.bobber.y += (dy / d) * step;
+            this.bobber.setAlpha(1);
+          } else if (this.biteAt === Number.POSITIVE_INFINITY) {
+            this.bobber.setAlpha(Math.max(0.45, this.bobber.alpha - cfg.school.lure.sinkSpeed * 0.01 * dt));
           }
+        }
+        if (this.biteAt !== Number.POSITIVE_INFINITY && this.waitT > this.biteAt + cfg.bite.hookWindowSeconds) {
+          this.school?.spook(this.bait());
+          this.loseFish('Too slow. It spat the bait and left.');
           break;
         }
-        if (this.nibbleIdx < this.bite.nibbleTimes.length && this.waitT >= this.bite.nibbleTimes[this.nibbleIdx]) {
-          this.nibbleIdx++;
-          this.nibble(1);
-        }
-        if (!this.dipped && this.waitT >= this.bite.dipAt) {
-          this.dipped = true;
-          this.bobber.setY(this.landing.y + 14).setTint(0xffd27f);
-          this.splash(this.landing.x, this.landing.y);
-          this.setHint('TAP NOW!', C.accentCss);
-        }
-        if (this.dipped && this.waitT > this.bite.dipAt + data.config.bite.hookWindowSeconds) {
-          this.bobber.clearTint();
-          this.loseFish('Too slow. It took the bait and left.');
+        if (!this.sawEligible && this.waitT >= cfg.bite.nothingBitingSeconds && !(this.school?.anyEligible ?? false)) {
+          this.endWait('');
+          toast(this, `Nothing here takes ${itemName(data, S().player.equipped)} now. Try another bait, time or spot.`, C.muted);
+          this.setHint('HOLD on the water to cast again.');
         }
         break;
       }
@@ -620,7 +790,7 @@ export class FishingScene extends Phaser.Scene {
 /** Pre-check without consuming bait, so an impossible cast never starts charging. */
 function beginCastCheck(data: ReturnType<typeof S>['data'], player: ReturnType<typeof S>['player']): { ok: true } | { ok: false; reason: string } {
   if (player.creel.length >= data.config.economy.creelSize) return { ok: false, reason: 'Creel full. Sell your catch at the shop.' };
-  const isLure = data.gear.lures.some((l) => l.id === player.equipped);
-  if (!isLure && (player.inventory[player.equipped] ?? 0) <= 0) return { ok: false, reason: `Out of ${itemName(data, player.equipped)}. Tap the hook to change bait.` };
+  const lure = isLure(data, player.equipped);
+  if (!lure && (player.inventory[player.equipped] ?? 0) <= 0) return { ok: false, reason: `Out of ${itemName(data, player.equipped)}. Tap the hook to change bait.` };
   return { ok: true };
 }

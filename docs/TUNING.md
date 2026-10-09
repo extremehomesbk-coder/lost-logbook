@@ -52,6 +52,19 @@ npm run sim       # just the playthrough simulation (report in scratch/playthrou
 | `fight.firstRunDelay` | 1.2 s | Grace before the first run |
 | `fight.minRunDuration` | 0.6 s | Floor on run length (runs shorten as stamina drops) |
 | `fight.lineCaps` | 100 / 130 / 170 / 220 | Tension cap per line tier |
+| `school.count` | 5 | Visible fish in the water at once |
+| `school.senseRadius` | 150 px | Distance at which a wandering fish notices a float |
+| `school.wanderSpeed.min/max` | 28 / 60 px/s | Idle swimming speed |
+| `school.approachSpeed` | 85 px/s | Approach speed (chase = 1.2×, flee = 1.6×) |
+| `school.circleRadius`, `circleSpeed` | 28 px / 2.6 rad/s | Circling the float before the bite |
+| `school.inspectSeconds` | 0.9 | How long a wrong-bait fish sniffs the float before turning away |
+| `school.eligibleSpawnChance` | 0.65 | Chance a spawned fish takes the current bait (else a "wrong bait" fish) |
+| `school.respawn.min/max` | 2 / 4 s | Delay before a departed fish is replaced |
+| `school.spookRadius` | 90 px | Fish this close to the float flee on a bad tap or a reel-in |
+| `school.lure.sinkSpeed` | 14 | Lure fade rate while it sinks (visual only) |
+| `school.lure.retrieveSpeed` | 70 px/s | Lure speed toward the angler while held |
+| `school.lure.chaseRadius`, `strikeRadius` | 170 / 26 px | Fish chase a moving lure inside chaseRadius; strike inside strikeRadius |
+| `school.lure.strikePerSecond` | 1.2 | Strike probability per second while in range and moving; a strike while you hold hooks itself |
 | `predator.taps` | 5 | Taps needed to chase the predator off |
 | `predator.seconds` | 2.0 | Time allowed |
 | `predator.triggerStaminaBelow` | 0.55 | The attempt fires when the fish's stamina first drops under this |
@@ -119,7 +132,7 @@ Silver Blade + Golden Scale + Ironjaw Hook; `assembly`). Buying a rod or line au
 Design resolution 390×844 (portrait iPhone), Phaser `FIT`; `src/game/ui.ts` (`W`, `H`, `TOP`, `BOTTOM`, palette,
 rarity colours, sky colours per period). Placeholder textures are generated in `src/game/textures.ts`; the keys are
 stable so real art can be loaded under the same key: `fish_<id>`, `fish_<id>_silhouette`, `bobber`, `spot_<id>`,
-`predator_<id>`, `coin`, `lock`, `spark`, `ray`.
+`fishtop_<id>` (top-down outline), `predator_<id>`, `coin`, `lock`, `spark`, `ray`.
 
 ## Simulation constants (not gameplay; `src/sim/playthrough.test.ts`)
 

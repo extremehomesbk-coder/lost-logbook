@@ -103,5 +103,30 @@
     "key": "lostlogbook.save",
     "version": 1,
     "exportPrefix": "LL1."
+  },
+  "school": {
+    "count": 5,
+    "senseRadius": 150,
+    "wanderSpeed": {
+      "min": 28,
+      "max": 60
+    },
+    "approachSpeed": 85,
+    "circleRadius": 28,
+    "circleSpeed": 2.6,
+    "inspectSeconds": 0.9,
+    "eligibleSpawnChance": 0.65,
+    "respawn": {
+      "min": 2,
+      "max": 4
+    },
+    "spookRadius": 90,
+    "lure": {
+      "sinkSpeed": 14,
+      "retrieveSpeed": 70,
+      "strikeRadius": 26,
+      "strikePerSecond": 1.2,
+      "chaseRadius": 170
+    }
   }
 }

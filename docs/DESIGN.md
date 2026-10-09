@@ -14,6 +14,20 @@ A young angler finds an old logbook describing a legendary fish nobody has lande
 fish -> sell catch -> buy better gear/bait -> reach new spots and rarer fish -> collect the items needed for the
 legendary fish -> land it.
 
+## What the 1990s original actually does (researched 2026-10-09, drives v0.2)
+From reviews and player FAQs of the Game Boy fishing adventure this is inspired by (no footage was watched):
+- Fish are **visible** as outlines swimming near the float. One catches the scent, approaches, circles the float
+  a few times (the float twitches and "rings"), then takes it: the float turns yellow and dips.
+- Casting is **aimed** on the water with a held button for distance.
+- A hooked fish cuts to an **underwater side view** where you see the fish. Rhythm: let it run until it stops,
+  reel until it resists, let go; it tires each cycle. Reel constantly and the line snaps.
+- **Lures** behave differently from bait: they sink and must be retrieved in pulses; fish chase the moving lure.
+- Bait choice, hook size, rod and river section all decide which species can be caught.
+
+v0.2 of this slice follows that: top-down bank with aimed hold-to-cast, five visible fish per spot (species from
+the spot/time/bait pools, wrong-bait fish inspect and turn away), circle-then-bite, lure retrieval with chase
+strikes, and an underwater cutaway for the fight. Hook size is not modelled (bait + rod + line do that job).
+
 ## 1. Fishing (the core, must feel great on touch)
 - **Cast**: press and hold to build power, release to cast. Longer cast reaches deeper water and different fish.
 - **Bite**: bobber twitches (fake nibbles) then dips. Tap within a short window to hook. Too early or too late = fish gone.

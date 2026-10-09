@@ -4,6 +4,7 @@
  *
  *   fish_<fishId>              coloured fish, 128x64, facing right
  *   fish_<fishId>_silhouette   same shape, dark, for the collection log
+ *   fishtop_<fishId>           top-down outline, 96x40, facing right (swims around the float)
  *   bobber                     red/white float, 24x32
  *   spot_<spotId>              map marker, 72x72
  *   predator_<predatorId>      gull / otter / pike / heron, 96x64
@@ -70,6 +71,22 @@ export function buildTextures(scene: Phaser.Scene, data: GameData): void {
     const color = cssToHex(f.color);
     make(`fish_${f.id}`, 128, 64, (g) => drawFish(g, f.id, color, false));
     make(`fish_${f.id}_silhouette`, 128, 64, (g) => drawFish(g, f.id, color, true));
+  }
+
+  // top-down outline used while fish swim around the float (the "yellow outline" look)
+  for (const f of data.fish) {
+    make(`fishtop_${f.id}`, 96, 40, (g) => {
+      const h = hash(f.id);
+      const len = 56 + (h % 30);
+      const wid = 14 + ((h >> 6) % 10);
+      g.lineStyle(3, 0xffe27a, 1);
+      g.strokeEllipse(48, 20, len, wid);
+      g.fillStyle(0xffe27a, 0.25);
+      g.fillEllipse(48, 20, len, wid);
+      g.fillStyle(0xffe27a, 1);
+      g.fillTriangle(48 - len / 2 + 4, 20, 48 - len / 2 - 14, 10, 48 - len / 2 - 14, 30);
+      g.fillCircle(48 + len / 2 - 10, 20, 2.5);
+    });
   }
 
   make('bobber', 24, 32, (g) => {
