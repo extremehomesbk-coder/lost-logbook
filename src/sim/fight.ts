@@ -25,7 +25,8 @@ export type FightEvent =
   | { type: 'run' }
   | { type: 'runEnd' }
   | { type: 'phase'; index: number; label: string }
-  | { type: 'tired' };
+  | { type: 'tired' }
+  | { type: 'resist' };
 
 export interface FightState {
   tension: number;
@@ -39,6 +40,8 @@ export interface FightState {
   elapsed: number;
   phase: number;
   tired: boolean;
+  /** seconds the player has reeled continuously while the fish rests; past resistAfter it fights back */
+  reelHeld: number;
   outcome: FightOutcome;
   events: FightEvent[];
 }
@@ -56,6 +59,7 @@ export function createFight(p: FightParams): FightState {
     elapsed: 0,
     phase: -1,
     tired: false,
+    reelHeld: 0,
     outcome: 'fighting',
     events: [],
   };
@@ -122,20 +126,29 @@ export function stepFight(s: FightState, p: FightParams, dt: number, reeling: bo
   }
 
   // Runs
+  const startRun = (resist: boolean) => {
+    s.running = true;
+    s.reelHeld = 0;
+    s.runLeft = Math.max(cfg.minRunDuration, p.fish.runDuration * cfg.runDurationMult * (0.5 + 0.5 * s.stamina));
+    s.events.push({ type: resist ? 'resist' : 'run' });
+  };
   if (s.running) {
     s.runLeft -= dt;
     if (s.runLeft <= 0) {
       s.running = false;
-      s.nextRun = p.fish.runEvery * runEveryMult * (0.7 + 0.6 * p.rng());
+      s.nextRun = p.fish.runEvery * cfg.restMult * runEveryMult * (0.7 + 0.6 * p.rng());
       s.events.push({ type: 'runEnd' });
     }
   } else if (!s.tired) {
     s.nextRun -= dt;
-    if (s.nextRun <= 0) {
-      s.running = true;
-      s.runLeft = Math.max(cfg.minRunDuration, p.fish.runDuration * (0.5 + 0.5 * s.stamina));
-      s.events.push({ type: 'run' });
-    }
+    // "reel until it resists": continuous reeling on a resting fish provokes a run sooner the fresher it is
+    if (reeling) s.reelHeld += dt;
+    else s.reelHeld = Math.max(0, s.reelHeld - dt * 2);
+    const tolerance = cfg.resistAfter * (0.4 + 0.6 * s.stamina) * Math.sqrt(p.rodStrength / Math.max(0.5, p.fish.strength));
+    if (s.nextRun <= 0) startRun(false);
+    else if (s.reelHeld >= tolerance) startRun(true);
+  } else if (reeling) {
+    s.reelHeld += dt;
   }
 
   const strength = effectiveStrength(p, s);
@@ -144,7 +157,9 @@ export function stepFight(s: FightState, p: FightParams, dt: number, reeling: bo
   // Tension and line
   let resting = false;
   if (reeling) {
-    const rise = cfg.reelRise + pull * (s.running ? cfg.runRiseMult : 1);
+    const tolerance = cfg.resistAfter * (0.4 + 0.6 * s.stamina);
+    const building = s.running || s.tired ? 1 : 1 + (cfg.resistRise - 1) * Math.min(1, s.reelHeld / Math.max(0.1, tolerance));
+    const rise = (cfg.reelRise + pull * (s.running ? cfg.runRiseMult : 1)) * building;
     s.tension += rise * dt;
     if (s.running) {
       s.lineOut += cfg.runSpeed * 0.35 * dt;

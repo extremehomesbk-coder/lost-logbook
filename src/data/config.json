@@ -45,14 +45,14 @@
     "earlyTapSpooks": true
   },
   "fight": {
-    "startTension": 25,
+    "startTension": 35,
     "reelRise": 20,
     "pullRise": 13,
     "releaseFall": 42,
     "runRiseMult": 1.7,
     "slackBelow": 8,
-    "slackSeconds": 1.8,
-    "reelSpeed": 10,
+    "slackSeconds": 2.5,
+    "reelSpeed": 11,
     "runSpeed": 5.5,
     "runDrain": 1,
     "holdDrain": 0.5,
@@ -73,7 +73,11 @@
     "restRegen": 0.6,
     "gainBase": 1.2,
     "fishHold": 0.5,
-    "gainMin": -0.6
+    "gainMin": -0.6,
+    "resistAfter": 3.2,
+    "runDurationMult": 1.7,
+    "restMult": 1,
+    "resistRise": 1.8
   },
   "predator": {
     "taps": 5,
@@ -106,14 +110,14 @@
   },
   "school": {
     "count": 5,
-    "senseRadius": 150,
+    "senseRadius": 180,
     "wanderSpeed": {
-      "min": 28,
-      "max": 60
+      "min": 9,
+      "max": 24
     },
-    "approachSpeed": 85,
+    "approachSpeed": 42,
     "circleRadius": 28,
-    "circleSpeed": 2.6,
+    "circleSpeed": 1.5,
     "inspectSeconds": 0.9,
     "eligibleSpawnChance": 0.65,
     "respawn": {
@@ -127,6 +131,16 @@
       "strikeRadius": 26,
       "strikePerSecond": 1.2,
       "chaseRadius": 170
-    }
+    },
+    "pause": {
+      "min": 0.6,
+      "max": 2.2
+    },
+    "turnRate": 3,
+    "scale": {
+      "min": 0.3,
+      "max": 0.72
+    },
+    "curiosity": 0.6
   }
 }

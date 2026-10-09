@@ -32,15 +32,19 @@ npm run sim       # just the playthrough simulation (report in scratch/playthrou
 | `bite.hookWindowSeconds` | 0.6 | Tap window after the dip |
 | `bite.nothingBitingSeconds` | 9 | How long an empty cast waits before "nothing biting" |
 | `bite.earlyTapSpooks` | true | Tapping during a nibble loses the fish |
-| `fight.startTension` | 25 | Tension when hooked (line units; cap depends on line) |
+| `fight.startTension` | 35 | Tension when hooked (line units; cap depends on line) |
 | `fight.reelRise` | 20 /s | Tension rise from reeling alone |
 | `fight.pullRise` | 13 /s | Tension rise per unit of (fish strength / rod strength) ^ pullExponent |
 | `fight.pullExponent` | 1.6 | How sharply an outmatched rod gets punished |
+| `fight.resistAfter` | 3.2 s | Reel a resting fish continuously this long (× fish freshness × sqrt(rod/strength)) and it fights back ("It resists!") |
+| `fight.resistRise` | 1.8 | Tension rise multiplier reached as that tolerance runs out, so the player feels it coming |
+| `fight.runDurationMult` | 1.7 | Scales every fish's `runDuration` (longer runs read better than twitches) |
+| `fight.restMult` | 1.0 | Scales every fish's `runEvery` (rest length between runs) |
 | `fight.releaseFall` | 42 /s | Tension drop when released |
 | `fight.runRiseMult` | 1.7 | Reeling during a run multiplies the pull rise |
 | `fight.slackBelow` | 8 | Tension under this counts as slack |
-| `fight.slackSeconds` | 1.8 | Slack this long = fish escapes |
-| `fight.reelSpeed` | 10 m/s | Base reel gain, scaled by sqrt(rod strength) |
+| `fight.slackSeconds` | 2.5 | Slack this long = fish escapes |
+| `fight.reelSpeed` | 11 m/s | Base reel gain, scaled by sqrt(rod strength) |
 | `fight.gainBase`, `fishHold`, `gainMin` | 1.2 / 0.5 / -0.6 | Reel gain fraction = clamp(gainBase - fishHold * strength/rod, gainMin, gainBase); negative = fish takes line while you reel |
 | `fight.tightBelow`, `tightSpan` | 25 / 35 | Reel gain ramps from 0 at tension 25 to full at 60 (slack line moves no fish) |
 | `fight.runSpeed` | 5.5 m/s | Line the fish takes per second during a run (35% of that if you keep reeling) |
@@ -53,10 +57,14 @@ npm run sim       # just the playthrough simulation (report in scratch/playthrou
 | `fight.minRunDuration` | 0.6 s | Floor on run length (runs shorten as stamina drops) |
 | `fight.lineCaps` | 100 / 130 / 170 / 220 | Tension cap per line tier |
 | `school.count` | 5 | Visible fish in the water at once |
-| `school.senseRadius` | 150 px | Distance at which a wandering fish notices a float |
-| `school.wanderSpeed.min/max` | 28 / 60 px/s | Idle swimming speed |
-| `school.approachSpeed` | 85 px/s | Approach speed (chase = 1.2×, flee = 1.6×) |
-| `school.circleRadius`, `circleSpeed` | 28 px / 2.6 rad/s | Circling the float before the bite |
+| `school.senseRadius` | 180 px | Distance at which a wandering fish notices a float |
+| `school.wanderSpeed.min/max` | 9 / 24 px/s | Idle glide speed |
+| `school.pause.min/max` | 0.6 / 2.2 s | Hover between glides |
+| `school.turnRate` | 3.0 rad/s | How fast a fish turns (moves along its heading, so turns are arcs) |
+| `school.scale.min/max` | 0.30 / 0.72 | Outline sprite scale for the smallest / largest species (×0.78 far to ×1.1 near) |
+| `school.curiosity` | 0.6 | Chance an eligible fish picks its next glide target near a float in the water |
+| `school.approachSpeed` | 42 px/s | Approach speed (chase = 1.2×, flee = 1.6×) |
+| `school.circleRadius`, `circleSpeed` | 28 px / 1.5 rad/s | Circling the float before the bite |
 | `school.inspectSeconds` | 0.9 | How long a wrong-bait fish sniffs the float before turning away |
 | `school.eligibleSpawnChance` | 0.65 | Chance a spawned fish takes the current bait (else a "wrong bait" fish) |
 | `school.respawn.min/max` | 2 / 4 s | Delay before a departed fish is replaced |
@@ -132,7 +140,7 @@ Silver Blade + Golden Scale + Ironjaw Hook; `assembly`). Buying a rod or line au
 Design resolution 390×844 (portrait iPhone), Phaser `FIT`; `src/game/ui.ts` (`W`, `H`, `TOP`, `BOTTOM`, palette,
 rarity colours, sky colours per period). Placeholder textures are generated in `src/game/textures.ts`; the keys are
 stable so real art can be loaded under the same key: `fish_<id>`, `fish_<id>_silhouette`, `bobber`, `spot_<id>`,
-`fishtop_<id>` (top-down outline), `predator_<id>`, `coin`, `lock`, `spark`, `ray`.
+`fishtop_<id>` (top-down outline), `angler`, `wave`, `reed`, `leaf`, `predator_<id>`, `coin`, `lock`, `spark`, `ray`.
 
 ## Simulation constants (not gameplay; `src/sim/playthrough.test.ts`)
 

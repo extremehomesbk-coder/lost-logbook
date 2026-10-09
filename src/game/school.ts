@@ -38,20 +38,30 @@ export class FishActor {
   ty: number;
   t = 0;
   angle = 0;
+  heading = 0;
+  speed = 0;
+  pauseLeft = 0;
   nibblesLeft = 0;
   nextNibbleIn = 0;
+  readonly baseScale: number;
+  readonly baseAlpha: number;
   readonly sprite: Phaser.GameObjects.Image;
 
-  constructor(scene: Phaser.Scene, readonly fish: Fish, readonly eligible: boolean, readonly band: { top: number; bottom: number }, x: number, y: number) {
+  constructor(
+    scene: Phaser.Scene, readonly fish: Fish, readonly eligible: boolean, readonly band: { top: number; bottom: number },
+    x: number, y: number, scale: { min: number; max: number }, depthAlpha: number,
+  ) {
     this.x = x;
     this.y = y;
     this.tx = x;
     this.ty = y;
-    const size = 0.55 + 0.75 * Math.min(1, fish.sizeCm.max / 190);
-    this.sprite = scene.add.image(x, y, `fishtop_${fish.id}`).setScale(size).setAlpha(0.75).setDepth(3);
-    if (fish.rarity === 'legendary') this.sprite.setTint(0xffffff).setAlpha(0.9);
+    this.heading = Math.random() < 0.5 ? 0 : Math.PI;
+    this.baseScale = scale.min + (scale.max - scale.min) * Math.min(1, fish.sizeCm.max / 190);
+    this.baseAlpha = depthAlpha;
+    this.sprite = scene.add.image(x, y, `fishtop_${fish.id}`).setScale(this.baseScale).setAlpha(depthAlpha).setDepth(3).setRotation(this.heading);
+    if (fish.rarity === 'legendary') this.sprite.setTint(0xffffff);
     else if (fish.rarity === 'rare') this.sprite.setTint(0xffd27f);
-    else if (!eligible) this.sprite.setTint(0xb0c4cc).setAlpha(0.55);
+    else if (!eligible) this.sprite.setTint(0x9fb3bf).setAlpha(depthAlpha * 0.7);
   }
 
   destroy(): void {
@@ -102,12 +112,21 @@ export class School {
     const y = between(this.rng, band.top, band.bottom);
     const fromLeft = this.rng() < 0.5;
     const x = anywhere ? between(this.rng, this.bounds.left, this.bounds.right) : fromLeft ? this.bounds.left - 40 : this.bounds.right + 40;
-    const a = new FishActor(this.scene, fish, eligible, band, x, y);
+    const depthAlpha = zone === 'deep' ? 0.5 : zone === 'mid' ? 0.68 : 0.85;
+    const a = new FishActor(this.scene, fish, eligible, band, x, y, this.cfg.scale, depthAlpha);
     this.pickTarget(a);
+    a.pauseLeft = between(this.rng, 0, this.cfg.pause.max);
     this.actors.push(a);
   }
 
   private pickTarget(a: FishActor): void {
+    const bait = this.lastBait;
+    // curiosity: fish that would take this bait drift toward a float sitting in the water
+    if (bait && a.eligible && this.rng() < this.cfg.curiosity) {
+      a.tx = Phaser.Math.Clamp(bait.x + between(this.rng, -90, 90), this.bounds.left + 20, this.bounds.right - 20);
+      a.ty = Phaser.Math.Clamp(bait.y + between(this.rng, -70, 70), a.band.top, a.band.bottom);
+      return;
+    }
     a.tx = between(this.rng, this.bounds.left + 20, this.bounds.right - 20);
     a.ty = between(this.rng, a.band.top, a.band.bottom);
   }
@@ -165,8 +184,17 @@ export class School {
       const d = bait ? Phaser.Math.Distance.Between(a.x, a.y, bait.x, bait.y) : Infinity;
       switch (a.state) {
         case 'wander': {
-          const speed = between(this.rng, cfg.wanderSpeed.min, cfg.wanderSpeed.max);
-          if (this.moveToward(a, a.tx, a.ty, speed, dt)) this.pickTarget(a);
+          if (a.pauseLeft > 0) {
+            a.pauseLeft -= dt;
+            a.speed = Math.max(0, a.speed - 30 * dt);
+            if (a.speed > 0) this.moveToward(a, a.tx, a.ty, a.speed, dt);
+          } else {
+            if (a.speed === 0) a.speed = between(this.rng, cfg.wanderSpeed.min, cfg.wanderSpeed.max);
+            if (this.moveToward(a, a.tx, a.ty, a.speed, dt)) {
+              this.pickTarget(a);
+              a.pauseLeft = between(this.rng, cfg.pause.min, cfg.pause.max);
+            }
+          }
           if (bait && !this.engaged) {
             if (bait.isLure && a.eligible && bait.moving && d < cfg.lure.chaseRadius) {
               a.state = 'chase';
@@ -203,7 +231,7 @@ export class School {
           a.angle += cfg.circleSpeed * dt;
           a.x = bait.x + Math.cos(a.angle) * cfg.circleRadius;
           a.y = bait.y + Math.sin(a.angle) * cfg.circleRadius;
-          a.sprite.setRotation(a.angle + Math.PI / 2);
+          a.heading = a.angle + Math.PI / 2;
           a.nextNibbleIn -= dt;
           if (a.nextNibbleIn <= 0) {
             if (a.nibblesLeft > 0) {
@@ -213,7 +241,6 @@ export class School {
             } else {
               a.state = 'bite';
               a.t = 0;
-              a.sprite.setRotation(0);
               events.push({ type: 'bite', actor: a });
             }
           }
@@ -274,19 +301,23 @@ export class School {
     const dist = Math.hypot(dx, dy);
     if (dist < 4) return true;
     const step = Math.min(dist, speed * dt);
-    a.x += (dx / dist) * step;
-    a.y += (dy / dist) * step;
-    if (a.state !== 'circle') {
-      a.sprite.setRotation(0);
-      a.sprite.setFlipX(dx < 0);
-    }
-    return dist - step < 4;
+    const want = Math.atan2(dy, dx);
+    const turn = Phaser.Math.Angle.RotateTo(a.heading, want, this.cfg.turnRate * dt);
+    a.heading = turn;
+    // move along the heading, not straight at the target, so turns are arcs
+    a.x += Math.cos(a.heading) * step;
+    a.y += Math.sin(a.heading) * step;
+    return dist - step < 6;
   }
 
   private render(a: FishActor): void {
     a.sprite.setPosition(a.x, a.y);
-    // gentle tail wiggle
-    if (a.state !== 'circle') a.sprite.setRotation(Math.sin(a.t * 8) * 0.06);
+    const moving = a.state !== 'bite' && (a.state !== 'wander' || a.speed > 1);
+    const wiggle = moving ? Math.sin(a.t * 7) * 0.07 : Math.sin(a.t * 2) * 0.02;
+    a.sprite.setRotation(a.heading + wiggle);
+    // perspective: fish farther up the screen read smaller
+    const t = (a.y - this.bounds.top) / Math.max(1, this.bounds.bottom - this.bounds.top);
+    a.sprite.setScale(a.baseScale * (0.78 + 0.32 * t));
   }
 
   destroy(): void {

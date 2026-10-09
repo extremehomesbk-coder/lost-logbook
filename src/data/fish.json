@@ -661,7 +661,7 @@
       "strength": 6.5,
       "stamina": 60,
       "runEvery": 3,
-      "runDuration": 2.6
+      "runDuration": 2
     },
     "boss": {
       "phases": [
