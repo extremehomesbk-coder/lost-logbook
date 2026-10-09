@@ -53,7 +53,11 @@ npm run sim       # just the playthrough simulation (report in scratch/playthrou
 | `fight.restBelow`, `restRegen` | 40 / 0.6 | Below this tension (released, not running) the fish regains (restRegen / fish.stamina) per second |
 | `fight.tiredBelow` | 0.12 | Stamina under this: no more runs ("It is tiring") |
 | `fight.weakPull` | 0.4 | Pull of an exhausted fish as a fraction of fresh pull |
-| `fight.firstRunDelay` | 1.2 s | Grace before the first run |
+| `fight.firstRunDelay` | 0.35 s | Every fight opens with a run this soon after the hook (first decision is always "let it run") |
+| `fight.sweetLow` / `sweetHigh` | 0.45 / 0.72 | Sweet zone on the tension bar (fractions of the line cap) |
+| `fight.sweetGainMult` | 1.4 | Reel gain multiplier inside the sweet zone |
+| `fight.sweetDrainMult` | 1.6 | Fish tires this much faster while reeled inside the sweet zone |
+| `fight.runRampIn` / `runFadeOut` | 0.35 / 0.5 s | Runs accelerate in and ease out over these times |
 | `fight.minRunDuration` | 0.6 s | Floor on run length (runs shorten as stamina drops) |
 | `fight.lineCaps` | 100 / 130 / 170 / 220 | Tension cap per line tier |
 | `school.count` | 5 | Visible fish in the water at once |

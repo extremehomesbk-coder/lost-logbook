@@ -57,7 +57,7 @@
     "runDrain": 1,
     "holdDrain": 0.5,
     "tiredBelow": 0.12,
-    "firstRunDelay": 1.2,
+    "firstRunDelay": 0.35,
     "minRunDuration": 0.6,
     "weakPull": 0.4,
     "lineCaps": {
@@ -77,7 +77,13 @@
     "resistAfter": 3.2,
     "runDurationMult": 1.7,
     "restMult": 1,
-    "resistRise": 1.8
+    "resistRise": 1.8,
+    "sweetLow": 0.45,
+    "sweetHigh": 0.72,
+    "sweetGainMult": 1.4,
+    "sweetDrainMult": 1.6,
+    "runRampIn": 0.35,
+    "runFadeOut": 0.5
   },
   "predator": {
     "taps": 5,

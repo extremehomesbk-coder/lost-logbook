@@ -35,6 +35,12 @@ export interface FightState {
   stamina: number;
   running: boolean;
   runLeft: number;
+  /** full length of the current run, for ramp-in / fade-out */
+  runTotal: number;
+  /** metres per second of line change this step (+ = fish taking line) */
+  lineVelocity: number;
+  /** 1 while tension sits in the sweet zone, else 0 */
+  inSweet: boolean;
   nextRun: number;
   slackTime: number;
   elapsed: number;
@@ -54,7 +60,10 @@ export function createFight(p: FightParams): FightState {
     stamina: 1,
     running: false,
     runLeft: 0,
-    nextRun: p.cfg.firstRunDelay + p.fish.runEvery * p.rng() * 0.5,
+    runTotal: 0,
+    lineVelocity: 0,
+    inSweet: false,
+    nextRun: p.cfg.firstRunDelay, // every fight opens with a run: the first decision is always "let it run"
     slackTime: 0,
     elapsed: 0,
     phase: -1,
@@ -130,6 +139,7 @@ export function stepFight(s: FightState, p: FightParams, dt: number, reeling: bo
     s.running = true;
     s.reelHeld = 0;
     s.runLeft = Math.max(cfg.minRunDuration, p.fish.runDuration * cfg.runDurationMult * (0.5 + 0.5 * s.stamina));
+    s.runTotal = s.runLeft;
     s.events.push({ type: resist ? 'resist' : 'run' });
   };
   if (s.running) {
@@ -154,6 +164,14 @@ export function stepFight(s: FightState, p: FightParams, dt: number, reeling: bo
   const strength = effectiveStrength(p, s);
   const pull = pullRate(cfg, strength, p.rodStrength);
 
+  // Runs accelerate in and ease out instead of switching on and off
+  const runElapsed = s.runTotal - s.runLeft;
+  const ramp = s.running ? Math.min(1, runElapsed / cfg.runRampIn) * Math.min(1, Math.max(0.15, s.runLeft / cfg.runFadeOut)) : 0;
+  const runSpeedNow = cfg.runSpeed * ramp;
+  const capFrac = s.tension / p.lineCap;
+  s.inSweet = capFrac >= cfg.sweetLow && capFrac <= cfg.sweetHigh;
+  const lineBefore = s.lineOut;
+
   // Tension and line
   let resting = false;
   if (reeling) {
@@ -162,24 +180,27 @@ export function stepFight(s: FightState, p: FightParams, dt: number, reeling: bo
     const rise = (cfg.reelRise + pull * (s.running ? cfg.runRiseMult : 1)) * building;
     s.tension += rise * dt;
     if (s.running) {
-      s.lineOut += cfg.runSpeed * 0.35 * dt;
+      s.lineOut += runSpeedNow * 0.35 * dt;
     } else {
-      s.lineOut -= reelGain(cfg, strength, p.rodStrength) * tightness(cfg, s.tension) * dt;
+      const sweet = s.inSweet ? cfg.sweetGainMult : 1;
+      s.lineOut -= reelGain(cfg, strength, p.rodStrength) * tightness(cfg, s.tension) * sweet * dt;
     }
   } else {
     s.tension -= cfg.releaseFall * dt;
     if (s.running) {
       s.tension += pull * 0.3 * dt;
-      s.lineOut += cfg.runSpeed * dt;
+      s.lineOut += runSpeedNow * dt;
     } else if (s.tension < cfg.restBelow) {
       resting = true;
     }
   }
   s.tension = Math.max(0, s.tension);
   s.lineOut = Math.min(s.lineOut, s.startLineOut * 1.5);
+  s.lineVelocity = (s.lineOut - lineBefore) / dt;
 
   // Stamina: running burns it, a tight line burns it slower, a slack line lets the fish recover
-  const drainPerSecond = (s.running ? cfg.runDrain : cfg.holdDrain * (s.tension / p.lineCap)) / p.fish.stamina;
+  const sweetDrain = s.inSweet && reeling && !s.running ? cfg.sweetDrainMult : 1;
+  const drainPerSecond = ((s.running ? cfg.runDrain : cfg.holdDrain * (s.tension / p.lineCap)) * sweetDrain) / p.fish.stamina;
   s.stamina = Math.max(0, s.stamina - drainPerSecond * dt);
   if (resting) s.stamina = Math.min(1, s.stamina + (cfg.restRegen / p.fish.stamina) * dt);
   if (s.tired && s.stamina > cfg.tiredBelow * 2) s.tired = false;

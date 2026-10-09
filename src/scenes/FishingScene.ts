@@ -10,7 +10,7 @@ import { predatorTap, rollPredator, startPredator, stepPredator, type PredatorSt
 import { randomRng } from '../sim/rng';
 import { beginCast, equip, equippable, isLure, itemName, lineCapOf, recordCatch, recordLoss, rodOf, spotOf, timeOfDay, type CatchResult } from '../sim/state';
 
-type Phase = 'idle' | 'charging' | 'flying' | 'waiting' | 'fight' | 'predator' | 'result' | 'reveal';
+type Phase = 'idle' | 'charging' | 'flying' | 'waiting' | 'hooking' | 'fight' | 'landing' | 'predator' | 'result' | 'reveal';
 
 const WATER_TOP = TOP + 54;
 const WATER_BOTTOM = H - BOTTOM - 168;
@@ -75,6 +75,13 @@ export class FishingScene extends Phaser.Scene {
   private distLabel!: Phaser.GameObjects.Text;
   private bubbles!: Phaser.GameObjects.Particles.ParticleEmitter;
   private predatorPending = false;
+  private fishView = { x: 0, y: 0, vx: 0, yaw: 0, shake: 0 };
+  private tNeedle = 0;
+  private almostShown = false;
+  private streaks!: Phaser.GameObjects.Graphics;
+  private spray!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private trackFish!: Phaser.GameObjects.Image;
+  private bannerBox: Phaser.GameObjects.Container | null = null;
   private predator: PredatorState | null = null;
   private predatorUi: Phaser.GameObjects.Container | null = null;
   private dismissReveal: (() => void) | null = null;
@@ -169,7 +176,7 @@ export class FishingScene extends Phaser.Scene {
 
     // input
     const zone = this.add.zone(0, TOP + 44, W, WATER_BOTTOM + BANK_H - (TOP + 44)).setOrigin(0, 0).setInteractive();
-    zone.on('pointerdown', (p: Phaser.Input.Pointer) => { this.pointerX = p.x; this.press(); });
+    zone.on('pointerdown', (p: Phaser.Input.Pointer) => { this.gestured = true; this.pointerX = p.x; this.press(); });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => { this.pointerX = p.x; });
     this.input.on('pointerup', () => this.release());
     this.spaceKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
@@ -252,7 +259,10 @@ export class FishingScene extends Phaser.Scene {
   }
 
   /** Short vibration where supported (Android browsers); silent elsewhere. */
+  private gestured = false;
+
   private buzz(pattern: number | number[]): void {
+    if (!this.gestured) return; // browsers block vibration before the first tap
     try {
       navigator.vibrate?.(pattern);
     } catch {
@@ -286,6 +296,7 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private buildUnderwater(): void {
+    const { data } = S();
     this.under = this.add.container(0, 0).setVisible(false).setDepth(20);
     const h = WATER_BOTTOM + BANK_H - WATER_TOP;
     const bg = this.add.graphics();
@@ -302,6 +313,10 @@ export class FishingScene extends Phaser.Scene {
     }
     bg.fillStyle(0xcfe8f3, 0.9);
     bg.fillRect(0, WATER_TOP, W, 4);
+    for (let i = 0; i < 5; i++) {
+      bg.fillStyle(0xffffff, 0.05);
+      bg.fillTriangle(40 + i * 80, WATER_TOP + 4, 10 + i * 80, WATER_TOP + h - 30, 90 + i * 80, WATER_TOP + h - 30);
+    }
     bg.fillStyle(0x3a2e1f, 1);
     bg.fillRect(0, WATER_BOTTOM + BANK_H - 18, W, 18);
     for (let i = 0; i < 9; i++) {
@@ -309,33 +324,47 @@ export class FishingScene extends Phaser.Scene {
       bg.fillEllipse(20 + i * 45, WATER_BOTTOM + BANK_H - 22, 10, 40 + (i % 3) * 14);
     }
     this.under.add(bg);
+    this.streaks = this.add.graphics();
+    this.under.add(this.streaks);
     this.underLine = this.add.graphics();
     this.under.add(this.underLine);
     this.underFish = this.add.image(W / 2, WATER_TOP + h / 2, 'fish_dock_perch');
     this.under.add(this.underFish);
     this.bubbles = this.add.particles(0, 0, 'spark', {
-      speedY: { min: -40, max: -90 },
-      speedX: { min: -10, max: 10 },
-      lifespan: 1400,
-      scale: { start: 0.35, end: 0.1 },
-      alpha: { start: 0.7, end: 0 },
-      quantity: 1,
-      frequency: 120,
-      emitting: false,
+      speedY: { min: -40, max: -90 }, speedX: { min: -10, max: 10 }, lifespan: 1400,
+      scale: { start: 0.35, end: 0.1 }, alpha: { start: 0.7, end: 0 }, quantity: 1, frequency: 120, emitting: false,
     });
     this.under.add(this.bubbles);
+    this.spray = this.add.particles(0, 0, 'spark', {
+      speed: { min: 60, max: 180 }, angle: { min: 150, max: 210 }, lifespan: 500,
+      scale: { start: 0.5, end: 0 }, alpha: { start: 0.9, end: 0 }, quantity: 2, frequency: 30, emitting: false, tint: 0xcfe8f3,
+    });
+    this.under.add(this.spray);
 
+    // tension bar with the sweet zone
     const barY = WATER_TOP + 26;
-    this.under.add(this.add.rectangle(W / 2, barY, W - 48, 26, 0x000000, 0.65));
-    this.tensionFill = this.add.rectangle(24, barY, 0, 20, C.good).setOrigin(0, 0.5);
+    const bw = W - 48;
+    const cfg = data.config.fight;
+    this.under.add(this.add.rectangle(W / 2, barY, bw, 26, 0x000000, 0.65));
+    this.under.add(this.add.rectangle(24 + bw * cfg.sweetLow, barY, bw * (cfg.sweetHigh - cfg.sweetLow), 22, C.good, 0.28).setOrigin(0, 0.5));
+    this.under.add(this.add.rectangle(24 + bw * 0.8, barY, bw * 0.2, 22, C.danger, 0.3).setOrigin(0, 0.5));
+    this.tensionFill = this.add.rectangle(24, barY, 0, 18, C.good).setOrigin(0, 0.5);
     this.under.add(this.tensionFill);
-    this.under.add(this.add.rectangle(24 + (W - 48) * 0.8, barY, (W - 48) * 0.2, 20, C.danger, 0.35).setOrigin(0, 0.5));
-    this.tensionLabel = text(this, W / 2, barY, 'TENSION', 12, { bold: true, stroke: true });
+    this.tensionLabel = text(this, W / 2, barY, '', 12, { bold: true, stroke: true });
     this.under.add(this.tensionLabel);
-    this.under.add(this.add.rectangle(W / 2, barY + 28, W - 48, 12, 0x000000, 0.5));
-    this.distFill = this.add.rectangle(24, barY + 28, 0, 8, 0xffffff, 0.8).setOrigin(0, 0.5);
+    // progress track: fish icon moves toward the net
+    const trackY = barY + 32;
+    this.under.add(this.add.rectangle(W / 2, trackY, bw, 6, 0x000000, 0.5));
+    this.distFill = this.add.rectangle(24, trackY, 0, 4, 0xffffff, 0.6).setOrigin(0, 0.5);
     this.under.add(this.distFill);
-    this.distLabel = text(this, W / 2, barY + 48, '', 12, { color: C.text, stroke: true });
+    this.trackFish = this.add.image(W - 24, trackY, 'fishtop_dock_perch').setScale(0.3).setFlipX(true).setAlpha(0.9);
+    this.under.add(this.trackFish);
+    const net = this.add.graphics();
+    net.lineStyle(2, 0xf3efe4, 0.9);
+    net.strokeCircle(30, trackY, 8);
+    net.lineBetween(36, trackY + 6, 46, trackY + 14);
+    this.under.add(net);
+    this.distLabel = text(this, W / 2, trackY + 18, '', 11, { color: C.muted, stroke: true });
     this.under.add(this.distLabel);
   }
 
@@ -531,12 +560,25 @@ export class FishingScene extends Phaser.Scene {
 
   private startFight(fish: Fish): void {
     const { data, player } = S();
-    this.phase = 'fight';
+    this.phase = 'hooking';
+    this.hookedFish = fish;
     this.reelInBtn.setVisible(false);
-    this.holding = true;
+    this.holding = false;
     this.school?.takeEngaged();
-    this.cameras.main.flash(180, 255, 255, 255);
-    this.cameras.main.shake(140, 0.005);
+    this.castLine.clear();
+    // the float gets yanked under
+    this.tweens.add({ targets: this.bobber, y: this.bobber.y + 22, alpha: 0.15, scale: 0.7, duration: 140, ease: 'Quad.easeIn' });
+    const burst = this.add.particles(this.bobber.x, this.bobber.y, 'spark', {
+      speed: { min: 90, max: 260 }, lifespan: 600, scale: { start: 0.7, end: 0 }, alpha: { start: 1, end: 0 }, emitting: false, tint: 0xffffff,
+    }).setDepth(9);
+    burst.explode(26);
+    this.time.delayedCall(900, () => burst.destroy());
+    this.banner('STRIKE!', C.accentCss, 64);
+    this.cameras.main.zoomTo(1.08, 120, 'Quad.easeOut');
+    this.cameras.main.shake(220, 0.012);
+    this.buzz([30, 40, 90]);
+    this.setHint('');
+
     this.fightParams = {
       fish: fish.fight,
       bossPhases: fish.boss?.phases,
@@ -548,64 +590,111 @@ export class FishingScene extends Phaser.Scene {
     };
     this.fight = createFight(this.fightParams);
     this.predatorPending = !!this.spot.predator && rollPredator(this.spot.predator.chance, !!fish.boss, randomRng);
-    this.bobber.setVisible(false);
-    this.castLine.clear();
-    this.under.setVisible(true);
-    this.underFish.setTexture(`fish_${fish.id}`).setScale(0.9 + 1.1 * Math.min(1, fish.sizeCm.max / 190)).clearTint();
-    this.bubbles.start();
-    this.reelBtn.setVisible(true);
-    this.hint.setX(14).setOrigin(0, 0.5).setWordWrapWidth(W - 150).setAlign('left');
-    this.buzz([30, 40, 30]);
-    this.setHint(fish.boss ? 'Something enormous. Let it run. Reel only when it rests.' : 'HOOKED! Let it run, reel when it rests. Release the moment it pulls.', C.accentCss);
-    this.flash('HOOKED!', C.accentCss, 44);
+    this.almostShown = false;
+    this.tNeedle = this.fight.tension / this.fightParams.lineCap;
+
+    // short freeze, then cut underwater where the fish is already bolting
+    this.time.delayedCall(430, () => {
+      this.cameras.main.zoomTo(1, 200, 'Quad.easeOut');
+      this.cameras.main.flash(220, 255, 255, 255);
+      this.bobber.setVisible(false).setScale(1).setAlpha(1);
+      this.under.setVisible(true);
+      this.underFish.setTexture(`fish_${fish.id}`).setScale(0.9 + 1.1 * Math.min(1, fish.sizeCm.max / 190)).clearTint();
+      this.trackFish.setTexture(`fishtop_${fish.id}`);
+      this.fishView = { x: W - 70, y: WATER_TOP + 150, vx: 60, yaw: 0, shake: 0.6 };
+      this.bubbles.start();
+      this.reelBtn.setVisible(true);
+      this.hint.setX(14).setOrigin(0, 0.5).setWordWrapWidth(W - 150).setAlign('left');
+      this.hint.setText(fish.boss ? 'Something huge. Let it run, reel when it stops, ease off when it pulls.' : 'Let it run. Reel when it stops. Ease off when it pulls.').setColor(C.text);
+      this.phase = 'fight';
+      this.banner('LET IT RUN', '#9fd3e6', 40);
+    });
   }
 
   private updateFight(dt: number): void {
     const reeling = this.holding || !!this.spaceKey?.isDown;
     stepFight(this.fight, this.fightParams, dt, reeling);
-    for (const e of this.fight.events) {
+    const f = this.fight;
+    for (const e of f.events) {
       if (e.type === 'run' || e.type === 'resist') {
-        this.flash(e.type === 'resist' ? 'It resists! Let go!' : 'It runs! Let go!', '#ffb0a0', 28);
-        this.buzz(40);
-      }
-      if (e.type === 'tired') this.flash('It is tiring...', C.goodCss, 24);
-      if (e.type === 'phase') {
-        this.flash(e.label, RARITY_CSS.rare, 32);
-        this.cameras.main.shake(250, 0.008);
+        this.banner(e.type === 'resist' ? 'EASE OFF!' : 'LET IT RUN', e.type === 'resist' ? C.dangerCss : '#9fd3e6', 40);
+        this.cameras.main.shake(e.type === 'resist' ? 260 : 160, e.type === 'resist' ? 0.01 : 0.005);
+        this.fishView.shake = 1;
+        this.buzz(e.type === 'resist' ? [40, 30, 40] : 40);
+      } else if (e.type === 'runEnd') {
+        this.banner('REEL!', C.goodCss, 44);
+        this.buzz(20);
+      } else if (e.type === 'tired') {
+        this.banner("IT'S TIRING", C.goodCss, 34);
+      } else if (e.type === 'phase') {
+        this.banner(e.label, RARITY_CSS.rare, 36);
+        this.cameras.main.shake(300, 0.012);
+        this.fishView.shake = 1;
       }
     }
-    const f = this.fight;
     const frac = Phaser.Math.Clamp(f.tension / this.fightParams.lineCap, 0, 1);
-    this.rodBend = Phaser.Math.Linear(this.rodBend, frac, 0.2);
+    this.rodBend = Phaser.Math.Linear(this.rodBend, frac, Math.min(1, dt * 12));
+    this.tNeedle += (frac - this.tNeedle) * Math.min(1, dt * 16);
     if (reeling && !f.running) this.crankAngle += dt * 9;
     this.reelCrank.clear();
     this.reelCrank.lineStyle(3, 0x1a1200, 0.5);
     this.reelCrank.strokeCircle(0, 0, 34);
     this.reelCrank.lineStyle(4, 0x1a1200, 0.9);
     this.reelCrank.lineBetween(0, 0, Math.cos(this.crankAngle) * 34, Math.sin(this.crankAngle) * 34);
-    this.vignette.setAlpha(f.running ? 0.55 + 0.35 * Math.sin(f.elapsed * 18) : frac > 0.8 ? 0.6 : 0);
-    this.tensionFill.width = (W - 48) * frac;
-    this.tensionFill.setFillStyle(frac > 0.8 ? C.danger : frac > 0.55 ? C.accent : C.good);
-    this.tensionLabel.setText(f.running ? 'PULLING – release!' : frac > 0.8 ? 'DANGER' : frac < 0.1 ? 'SLACK!' : reeling ? 'REELING' : 'RESTING – reel now');
-    const dfrac = Phaser.Math.Clamp(1 - f.lineOut / f.startLineOut, 0, 1);
-    this.distFill.width = (W - 48) * dfrac;
-    this.distLabel.setText(`${Math.max(0, f.lineOut).toFixed(0)} m out · fish ${(f.stamina * 100).toFixed(0)}% fresh`);
+    this.vignette.setAlpha(f.running ? 0.35 + 0.25 * Math.sin(f.elapsed * 14) : frac > 0.8 ? 0.6 + 0.3 * Math.sin(f.elapsed * 30) : 0);
 
-    // underwater view: fish at a distance proportional to line out, swimming away while it runs
-    const t = Phaser.Math.Clamp(f.lineOut / f.startLineOut, 0, 1.5);
-    const fx = Phaser.Math.Linear(70, W - 50, t);
-    const fy = WATER_TOP + 150 + Math.sin(f.elapsed * (f.running ? 14 : 3)) * (f.running ? 10 : 4) + (1 - f.stamina) * 60;
-    this.underFish.setPosition(fx, fy).setFlipX(f.running);
-    this.underFish.setTint(f.running ? 0xffb0a0 : 0xffffff);
-    this.underFish.setAngle(f.running ? Math.sin(f.elapsed * 30) * 10 : Math.sin(f.elapsed * 3) * 4);
-    this.bubbles.setPosition(fx - 20, fy);
+    const bw = W - 48;
+    this.tensionFill.width = bw * this.tNeedle;
+    this.tensionFill.setFillStyle(this.tNeedle > 0.8 ? C.danger : f.inSweet ? C.good : C.accent);
+    this.tensionLabel.setText(
+      f.running ? 'RUNNING' : frac > 0.8 ? 'EASE OFF' : frac < 0.1 ? 'SLACK' : reeling ? (f.inSweet ? 'SWEET SPOT' : 'REELING') : 'REEL',
+    );
+    const progress = Phaser.Math.Clamp(1 - f.lineOut / f.startLineOut, 0, 1);
+    this.distFill.width = bw * progress;
+    this.trackFish.setX(W - 24 - bw * progress);
+    this.distLabel.setText(`${Math.max(0, f.lineOut).toFixed(0)} m · ${(f.stamina * 100).toFixed(0)}% fresh`);
+    if (!this.almostShown && f.lineOut < f.startLineOut * 0.12 && !f.running) {
+      this.almostShown = true;
+      this.banner('ALMOST!', C.accentCss, 40);
+    }
+
+    // fish with its own motion: a spring toward where the line says it is, head-shakes when it fights
+    const v = this.fishView;
+    const targetX = Phaser.Math.Linear(84, W - 56, Phaser.Math.Clamp(f.lineOut / f.startLineOut, 0, 1.4));
+    v.vx += ((targetX - v.x) * 30 - v.vx * 7) * dt;
+    v.x += v.vx * dt;
+    v.shake = Math.max(0, v.shake - dt * 1.4);
+    const depthY = WATER_TOP + 130 + (1 - f.stamina) * 70;
+    v.y += ((depthY + Math.sin(f.elapsed * (f.running ? 9 : 2.2)) * (f.running ? 12 : 5)) - v.y) * Math.min(1, dt * 5);
+    v.yaw = Phaser.Math.Clamp(-v.vx / 500, -0.45, 0.45) + Math.sin(f.elapsed * 38) * 0.4 * v.shake;
+    this.underFish.setPosition(v.x, v.y).setFlipX(v.vx > 8).setRotation(v.yaw);
+    this.underFish.setTint(f.running ? 0xffc0b0 : 0xffffff);
+    this.bubbles.setPosition(v.x - 20, v.y);
+
+    // streaks and spray while line screams out
+    this.streaks.clear();
+    const out = Math.max(0, f.lineVelocity);
+    if (out > 1) {
+      this.spray.setPosition(v.x - 30, v.y);
+      if (!this.spray.emitting) this.spray.start();
+      const n = Math.min(6, Math.floor(out));
+      for (let i = 0; i < n; i++) {
+        const sy = v.y - 18 + i * 7;
+        this.streaks.lineStyle(2, 0xffffff, 0.35 - i * 0.04);
+        this.streaks.lineBetween(v.x - 40 - i * 6, sy, v.x - 90 - out * 6 - i * 10, sy);
+      }
+    } else if (this.spray.emitting) this.spray.stop();
+
+    // line from the rod with sag; vibrates near the cap
     this.underLine.clear();
-    this.underLine.lineStyle(2, frac > 0.8 ? C.danger : C.line, 0.95);
-    const sag = (1 - frac) * 50;
+    const jitter = frac > 0.82 ? Math.sin(f.elapsed * 70) * 3 : 0;
+    this.underLine.lineStyle(frac > 0.82 ? 2.5 : 2, frac > 0.82 ? C.danger : C.line, 0.95);
+    const sag = (1 - frac) * 55;
+    const mouthX = v.x - 32;
     this.underLine.beginPath();
     this.underLine.moveTo(30, WATER_TOP + 4);
-    this.underLine.lineTo((30 + fx) / 2, (WATER_TOP + fy) / 2 + sag);
-    this.underLine.lineTo(fx - 30, fy);
+    this.underLine.lineTo((30 + mouthX) / 2 + jitter, (WATER_TOP + v.y) / 2 + sag + jitter);
+    this.underLine.lineTo(mouthX, v.y);
     this.underLine.strokePath();
 
     if (this.predatorPending && f.stamina < S().data.config.predator.triggerStaminaBelow && f.outcome === 'fighting') {
@@ -613,9 +702,14 @@ export class FishingScene extends Phaser.Scene {
       this.startPredator();
       return;
     }
-    if (f.outcome === 'landed') this.land();
-    else if (f.outcome === 'snapped') this.loseFish('SNAP! The line broke.', true);
-    else if (f.outcome === 'escaped') this.loseFish('The line went slack. It slipped the hook.');
+    if (f.outcome === 'landed') this.landSequence();
+    else if (f.outcome === 'snapped') {
+      this.banner('SNAP!', C.dangerCss, 60);
+      this.loseFish('The line broke. Ease off before the bar goes red.', true);
+    } else if (f.outcome === 'escaped') {
+      this.banner("IT'S GONE", C.dangerCss, 44);
+      this.loseFish('Slack line. Keep some tension on it.');
+    }
   }
 
   // ---------- predator ----------
@@ -675,6 +769,38 @@ export class FishingScene extends Phaser.Scene {
 
   // ---------- outcomes ----------
 
+  /** Scoop: the fish is hauled to the bank, flash, then the reveal. */
+  private landSequence(): void {
+    this.phase = 'landing';
+    this.spray.stop();
+    this.streaks.clear();
+    this.reelBtn.setVisible(false);
+    this.vignette.setAlpha(0);
+    this.banner('LANDED!', C.goodCss, 56);
+    this.cameras.main.zoomTo(1.06, 150, 'Quad.easeOut');
+    this.buzz([40, 60, 40, 60, 120]);
+    this.tweens.add({ targets: this.underFish, x: 50, y: WATER_TOP + 40, angle: -30, duration: 420, ease: 'Quad.easeIn', onComplete: () => {
+      this.cameras.main.zoomTo(1, 150);
+      this.cameras.main.flash(200, 255, 255, 255);
+      this.underFish.setAngle(0);
+      this.land();
+    } });
+  }
+
+  /** One big word, slid in from the left with a punch; only one on screen at a time. */
+  private banner(str: string, color: string, size: number): void {
+    this.bannerBox?.destroy();
+    const c = this.add.container(-220, WATER_TOP + 120).setDepth(35);
+    const t = text(this, 0, 0, str, size, { bold: true, color, stroke: true });
+    const under = this.add.rectangle(0, size * 0.5, t.width + 24, 5, Phaser.Display.Color.HexStringToColor(color).color, 0.9);
+    c.add([t, under]);
+    c.setScale(0.7);
+    this.bannerBox = c;
+    this.tweens.add({ targets: c, x: W / 2, scale: 1, duration: 170, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: c, alpha: 0, y: c.y - 24, delay: 820, duration: 320, onComplete: () => { if (this.bannerBox === c) this.bannerBox = null; c.destroy(); } });
+  }
+
+
   private loseFish(reason: string, snap = false, countsAsLoss = true): void {
     const { player } = S();
     if (countsAsLoss) recordLoss(player);
@@ -686,11 +812,13 @@ export class FishingScene extends Phaser.Scene {
     this.rodBend = 0;
     this.under.setVisible(false);
     this.bubbles.stop();
+    this.spray.stop();
+    this.streaks.clear();
     if (snap) this.buzz([80, 40, 80]);
     this.bobber.setVisible(false);
     this.castLine.clear();
     if (snap) this.cameras.main.shake(300, 0.012);
-    this.flash(reason, C.dangerCss, snap ? 40 : 26);
+    if (!this.bannerBox) this.flash(reason, C.dangerCss, 26);
     this.setHint(reason, C.dangerCss);
     this.time.delayedCall(1300, () => {
       this.phase = 'idle';

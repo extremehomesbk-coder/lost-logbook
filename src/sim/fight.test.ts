@@ -86,10 +86,48 @@ describe('escape', () => {
     const s = createFight(p);
     s.running = true;
     s.runLeft = 1.5;
+    s.runTotal = 1.5;
     s.tension = 40;
     for (let i = 0; i < 60; i++) stepFight(s, p, 1 / 60, false);
     expect(s.outcome).toBe('fighting');
     expect(s.lineOut).toBeGreaterThan(40);
+  });
+});
+
+describe('opening run and sweet zone', () => {
+  it('every fight opens with a run shortly after the hook', () => {
+    const p = params('dock_perch', 1, 1, 30);
+    const s = createFight(p);
+    let ran = false;
+    for (let i = 0; i < 60 && !ran; i++) {
+      stepFight(s, p, 1 / 60, false);
+      ran = s.running;
+    }
+    expect(ran).toBe(true);
+  });
+  it('reeling inside the sweet zone gains line faster than above it', () => {
+    const p = params('moss_carp', 3, 3, 50);
+    const a = createFight(p);
+    const b = createFight(p);
+    a.tension = p.lineCap * 0.6; // sweet
+    b.tension = p.lineCap * 0.78; // tight but outside
+    a.nextRun = 99; b.nextRun = 99;
+    const la = a.lineOut; const lb = b.lineOut;
+    stepFight(a, p, 0.1, true);
+    stepFight(b, p, 0.1, true);
+    expect(la - a.lineOut).toBeGreaterThan(lb - b.lineOut);
+  });
+  it('runs ramp in: line taken in the first tick is less than at full speed', () => {
+    const p = params('speckled_trout', 2, 2, 40);
+    const s = createFight(p);
+    s.running = true; s.runLeft = 2; s.runTotal = 2; s.tension = 50;
+    const l0 = s.lineOut;
+    stepFight(s, p, 0.05, false);
+    const first = s.lineOut - l0;
+    for (let i = 0; i < 10; i++) stepFight(s, p, 0.05, false);
+    const l1 = s.lineOut;
+    stepFight(s, p, 0.05, false);
+    expect(s.lineOut - l1).toBeGreaterThan(first);
   });
 });
 

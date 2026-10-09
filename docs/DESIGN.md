@@ -28,6 +28,11 @@ v0.2 of this slice follows that: top-down bank with aimed hold-to-cast, five vis
 the spot/time/bait pools, wrong-bait fish inspect and turn away), circle-then-bite, lure retrieval with chase
 strikes, and an underwater cutaway for the fight. Hook size is not modelled (bait + rod + line do that job).
 
+Fight loop as built (v0.4): tap on the take → STRIKE! (float yanked under, splash, zoom punch, short freeze) → cut
+underwater where the fish is already on an opening run → LET IT RUN → it stops → REEL! → tension climbs; keep it in
+the green sweet zone (faster gain, fish tires faster) → EASE OFF! when it fights back → repeat until ALMOST! → LANDED!
+Line snaps at the cap (SNAP!), slack for too long loses it (IT'S GONE).
+
 ## 1. Fishing (the core, must feel great on touch)
 - **Cast**: press and hold to build power, release to cast. Longer cast reaches deeper water and different fish.
 - **Bite**: bobber twitches (fake nibbles) then dips. Tap within a short window to hook. Too early or too late = fish gone.
