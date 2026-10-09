@@ -11,6 +11,7 @@
  *   spot_<spotId>              map marker, 72x72
  *   predator_<predatorId>      gull / otter / pike / heron, 96x64
  *   coin, lock, spark, ray     small icons and particle shapes
+ *   bubble, drop               fight particles: hollow bubble (tell puff), water drop (surface splash)
  */
 import Phaser from 'phaser';
 import type { GameData } from '../data/schema';
@@ -223,6 +224,19 @@ export function buildTextures(scene: Phaser.Scene, data: GameData): void {
   make('spark', 12, 12, (g) => {
     g.fillStyle(0xffffff, 1);
     g.fillCircle(6, 6, 5);
+  });
+  make('bubble', 12, 12, (g) => {
+    g.fillStyle(0xffffff, 0.15);
+    g.fillCircle(6, 6, 5);
+    g.lineStyle(1.5, 0xffffff, 0.9);
+    g.strokeCircle(6, 6, 4.5);
+    g.fillStyle(0xffffff, 0.9);
+    g.fillCircle(4, 4, 1.2);
+  });
+  make('drop', 8, 12, (g) => {
+    g.fillStyle(0xffffff, 1);
+    g.fillEllipse(4, 7, 7, 9);
+    g.fillTriangle(1.5, 5, 6.5, 5, 4, 0);
   });
   make('ray', 400, 24, (g) => {
     g.fillStyle(0xffffff, 1);

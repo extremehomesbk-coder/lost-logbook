@@ -15,6 +15,12 @@ export const FightProfileSchema = z.object({
   stamina: z.number().positive(),
   runEvery: z.number().positive(),
   runDuration: z.number().positive(),
+  /** seconds of warning before a timed run (default config fight.tellSeconds) */
+  tell: z.number().positive().optional(),
+  /** -1..1: chance a run goes deep (+1) is (1 + sideBias) / 2 (default 0) */
+  sideBias: z.number().min(-1).max(1).optional(),
+  /** 0..1: how long the surface finale lasts (default 0.5) */
+  thrash: z.number().min(0).max(1).optional(),
 });
 
 export const BossPhaseSchema = z.object({
@@ -141,10 +147,22 @@ export const ConfigSchema = z.object({
     weakPull: z.number().min(0).max(1),
     pullExponent: z.number().positive(),
     resistAfter: z.number().positive(),
-    sweetLow: z.number().min(0).max(1),
-    sweetHigh: z.number().min(0).max(1),
-    sweetGainMult: z.number().positive(),
-    sweetDrainMult: z.number().positive(),
+    tellSeconds: z.number().positive(),
+    lateSpike: z.number().nonnegative(),
+    headShakeEvery: range,
+    headShakeSlackBelow: z.number().nonnegative(),
+    steerShorten: z.number().positive().max(1),
+    steerAgainstGain: z.number().nonnegative(),
+    steerWrongGain: z.number().positive(),
+    steerWrongRise: z.number().positive(),
+    wearAbove: z.number().min(0).max(1),
+    wearPerSecond: z.number().nonnegative(),
+    wearMax: z.number().min(0).max(0.95),
+    finaleBelow: z.number().min(0).max(1),
+    finaleSeconds: range,
+    finaleThrowAfter: z.number().positive(),
+    finaleRiseCap: z.number().positive().max(1),
+    finaleGainMult: z.number().positive().max(1),
     runRampIn: z.number().positive(),
     runFadeOut: z.number().positive(),
     resistRise: z.number().positive(),

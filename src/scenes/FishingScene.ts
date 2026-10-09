@@ -5,7 +5,7 @@ import { S } from '../game/session';
 import { BOTTOM, C, H, RARITY_CSS, RARITY_HEX, TIME_SKY, TOP, W, button, hud, panel, sky, text, toast, type Button } from '../game/ui';
 import { candidates, hookResult, lineOutForPower, planBite, zoneForPower } from '../sim/bite';
 import { rollSizeCm } from '../sim/economy';
-import { createFight, stepFight, type FightParams, type FightState } from '../sim/fight';
+import { createFight, fightTraits, stepFight, type FightParams, type FightState, type RunSide, type Steer } from '../sim/fight';
 import { predatorTap, rollPredator, startPredator, stepPredator, type PredatorState } from '../sim/predator';
 import { randomRng } from '../sim/rng';
 import { beginCast, equip, equippable, isLure, itemName, lineCapOf, recordCatch, recordLoss, rodOf, spotOf, timeOfDay, type CatchResult } from '../sim/state';
@@ -16,6 +16,58 @@ const WATER_TOP = TOP + 54;
 const WATER_BOTTOM = H - BOTTOM - 168;
 const BANK_H = 46;
 const ANGLER = { x: W / 2, y: WATER_BOTTOM + 22 };
+
+// Underwater fight view (presentation only; the fight numbers live in config.fight).
+const SURFACE_Y = WATER_TOP + 84; // air strip above holds the strain meter and the progress track
+const BED_Y = WATER_BOTTOM + BANK_H - 18;
+const STRAIN_Y = WATER_TOP + 12;
+const TRACK_Y = WATER_TOP + 30;
+const ANCHOR = { x: 44, y: SURFACE_Y - 16 }; // rod tip in the side view: the line starts here
+const STEER_TILT = 0.22; // rod tip angle offset (rad) while steering
+const STEER_LIFT_PX = 14; // the side-view rod tip rises / drops this much while steering
+/** view-only feel constants; gameplay numbers live in config.json */
+export const FIGHT_FEEL = {
+  /** strain (tension / effectiveCap) where the crank starts to feel heavy */
+  resistFrom: 0.45,
+  /** ...and fully stalls this much strain later */
+  resistSpan: 0.4,
+  /** resistance above this judders the rod and the REEL button */
+  judderAbove: 0.6,
+  /** judder frequency, Hz */
+  judderHz: 12,
+  /** crank speed with no resistance, rad/s */
+  crankSpeed: 9,
+} as const;
+// LIFT / DIP buttons, stacked bottom-left over the water
+const STEER_BTN = { w: 96, h: 58, x: 12 + 96 / 2 };
+const DIP_Y = BED_Y - 26 - STEER_BTN.h / 2;
+const LIFT_Y = DIP_Y - STEER_BTN.h - 6;
+const STEER_TOP = LIFT_Y - STEER_BTN.h / 2;
+const STEER_BOTTOM = DIP_Y + STEER_BTN.h / 2;
+const FISH_MIN_X = 150; // keeps a nearly landed fish clear of the steer column
+const HEAD_SHAKE_S = 0.4;
+const FINALE_SPLASH_EVERY = 0.25;
+
+interface FishView {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** smoothed nose-down pitch (rad), applied as rotation × face */
+  pitch: number;
+  /** +1 nose right (away from the angler), -1 nose left (toward the angler) */
+  face: 1 | -1;
+  shake: number;
+  /** tail flick at a tell, 1 → 0 */
+  flick: number;
+  /** seconds of head-shake left */
+  headShake: number;
+  scale: number;
+  above: boolean;
+  splashCd: number;
+  finaleSplash: number;
+  jumpT: number;
+}
 
 /**
  * The core loop, modelled on the classic handheld fishing adventures: a top-down bank where you aim and hold to
@@ -38,12 +90,22 @@ export class FishingScene extends Phaser.Scene {
   private rodG!: Phaser.GameObjects.Graphics;
   private rodSwing = 0; // -1 back, 0 rest, 1 forward
   private rodBend = 0; // 0..1 from tension
+  private rodJudder = 0; // added to the bend while the fish resists hard
+  private steerTilt = 0; // rod tip angle offset while steering (eases to steer × STEER_TILT)
   private waves: Phaser.GameObjects.TileSprite[] = [];
   private reelBtn!: Phaser.GameObjects.Container;
   private reelCrank!: Phaser.GameObjects.Graphics;
+  private reelArc!: Phaser.GameObjects.Graphics;
+  private reelBg!: Phaser.GameObjects.Arc;
   private crankAngle = 0;
   private vignette!: Phaser.GameObjects.Graphics;
   private holding = false;
+  /** pointer holding REEL (or the water) during the fight, so a second finger lifting does not stop the reel */
+  private holdPointer: number | null = null;
+  private steerUi!: Phaser.GameObjects.Container;
+  private steerBtns: { dir: Steer; bg: Phaser.GameObjects.Rectangle }[] = [];
+  private steerTouch: Steer = 0;
+  private steerPointer: number | null = null;
   private pointerX = W / 2;
   private spaceKey?: Phaser.Input.Keyboard.Key;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -69,15 +131,16 @@ export class FishingScene extends Phaser.Scene {
   private under!: Phaser.GameObjects.Container;
   private underFish!: Phaser.GameObjects.Image;
   private underLine!: Phaser.GameObjects.Graphics;
-  private tensionFill!: Phaser.GameObjects.Rectangle;
-  private tensionLabel!: Phaser.GameObjects.Text;
+  private strainG!: Phaser.GameObjects.Graphics;
+  private strainLabel!: Phaser.GameObjects.Text;
   private distFill!: Phaser.GameObjects.Rectangle;
   private distLabel!: Phaser.GameObjects.Text;
   private bubbles!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private puff!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private splashFx!: Phaser.GameObjects.Particles.ParticleEmitter;
   private predatorPending = false;
-  private fishView = { x: 0, y: 0, vx: 0, yaw: 0, shake: 0 };
+  private fishView: FishView = newFishView();
   private tNeedle = 0;
-  private almostShown = false;
   private streaks!: Phaser.GameObjects.Graphics;
   private spray!: Phaser.GameObjects.Particles.ParticleEmitter;
   private trackFish!: Phaser.GameObjects.Image;
@@ -172,13 +235,24 @@ export class FishingScene extends Phaser.Scene {
 
     this.buildUnderwater();
     this.buildReelButton();
+    this.buildSteerButtons();
     this.spawnSchool();
 
     // input
     const zone = this.add.zone(0, TOP + 44, W, WATER_BOTTOM + BANK_H - (TOP + 44)).setOrigin(0, 0).setInteractive();
-    zone.on('pointerdown', (p: Phaser.Input.Pointer) => { this.gestured = true; this.pointerX = p.x; this.press(); });
+    zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      this.gestured = true;
+      this.pointerX = p.x;
+      if (this.phase === 'fight') {
+        if (this.holdPointer !== null) return; // another finger already holds the reel
+        if (p.x < 120 && p.y > STEER_TOP - 20 && p.y < STEER_BOTTOM + 20) return; // near-miss on LIFT / DIP
+        this.holdPointer = p.id;
+      }
+      this.press();
+    });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => { this.pointerX = p.x; });
-    this.input.on('pointerup', () => this.release());
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => this.release(p));
+    this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => { if (this.phase === 'fight') this.release(p); });
     this.spaceKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.cursors = this.input.keyboard?.createCursorKeys();
     this.input.keyboard?.on('keydown-SPACE', (e: KeyboardEvent) => { e.preventDefault(); if (!e.repeat) this.press(); });
@@ -208,8 +282,8 @@ export class FishingScene extends Phaser.Scene {
     const base = { x: ANGLER.x + 18, y: ANGLER.y + 2 };
     const len = 118;
     const swing = this.rodSwing; // -1 back (tip low-right), 1 forward (tip far up)
-    const ang = -Math.PI / 2 + 0.55 - swing * 0.75; // rest: leaning right
-    const bend = this.rodBend;
+    const ang = -Math.PI / 2 + 0.55 - swing * 0.75 + this.steerTilt; // rest: leaning right; lift = more upright
+    const bend = this.rodBend + this.rodJudder;
     return { x: base.x + Math.cos(ang) * len * (1 - 0.25 * bend), y: base.y + Math.sin(ang) * len * (1 - 0.1 * bend) + bend * 10 };
   }
 
@@ -219,7 +293,7 @@ export class FishingScene extends Phaser.Scene {
     g.clear();
     const base = { x: ANGLER.x + 18, y: ANGLER.y + 2 };
     const tip = this.rodTip();
-    const bend = this.rodBend;
+    const bend = this.rodBend + this.rodJudder;
     const cx = (base.x + tip.x) / 2 - bend * 26;
     const cy = (base.y + tip.y) / 2 + bend * 22;
     const curve = new Phaser.Curves.QuadraticBezier(new Phaser.Math.Vector2(base.x, base.y), new Phaser.Math.Vector2(cx, cy), new Phaser.Math.Vector2(tip.x, tip.y));
@@ -248,14 +322,69 @@ export class FishingScene extends Phaser.Scene {
     const c = this.add.container(W - 70, H - BOTTOM - 108).setDepth(25).setVisible(false);
     const bg = this.add.circle(0, 0, r, C.accent).setStrokeStyle(4, 0xffffff, 0.5);
     this.reelCrank = this.add.graphics();
+    this.reelArc = this.add.graphics();
     const label = text(this, 0, 0, 'HOLD\nREEL', 15, { bold: true, color: '#1a1200' });
-    c.add([bg, this.reelCrank, label]);
+    c.add([bg, this.reelCrank, this.reelArc, label]);
     bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerdown', () => { this.holding = true; bg.setFillStyle(0xffd27f); });
-    const up = () => { this.holding = false; bg.setFillStyle(C.accent); };
-    bg.on('pointerup', up);
-    bg.on('pointerout', up);
+    bg.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (this.holdPointer !== null && this.holdPointer !== p.id) return;
+      this.holding = true;
+      this.holdPointer = p.id;
+    });
+    // no pointerout: the thumb drifts and the button pulses; the hold ends on that finger's pointerup (release())
+    this.reelBg = bg;
     this.reelBtn = c;
+  }
+
+  /** LIFT / DIP, stacked bottom-left over the water: hold to steer the rod against the fish's run. */
+  private buildSteerButtons(): void {
+    const c = this.add.container(0, 0).setDepth(25).setVisible(false);
+    this.steerBtns = []; // the scene instance is reused on every visit
+    const { w: bw, h: bh, x } = STEER_BTN;
+    const defs: [Steer, string, number][] = [[-1, 'LIFT ▲', LIFT_Y], [1, 'DIP ▼', DIP_Y]];
+    for (const [dir, label, y] of defs) {
+      const bg = this.add.rectangle(x, y, bw, bh, 0x000000, 0.3).setStrokeStyle(2, 0xffffff, 0.45);
+      c.add([bg, text(this, x, y, label, 16, { bold: true, stroke: true })]);
+      bg.setInteractive({ useHandCursor: true });
+      bg.on('pointerdown', (p: Phaser.Input.Pointer) => { this.gestured = true; this.setSteer(dir, p.id); });
+      // sliding a thumb from one button to the other switches without lifting
+      bg.on('pointerover', (p: Phaser.Input.Pointer) => {
+        if (p.isDown && p.id !== this.holdPointer && (this.steerPointer === null || this.steerPointer === p.id)) this.setSteer(dir, p.id);
+      });
+      const up = (p: Phaser.Input.Pointer) => { if (this.steerPointer === p.id && this.steerTouch === dir) this.setSteer(0, null); };
+      bg.on('pointerup', up);
+      bg.on('pointerout', up);
+      this.steerBtns.push({ dir, bg });
+    }
+    this.steerUi = c;
+  }
+
+  private setSteer(dir: Steer, pointer: number | null): void {
+    this.steerTouch = dir;
+    this.steerPointer = pointer;
+  }
+
+  /** Touch steer wins; otherwise ArrowUp = lift (-1), ArrowDown = dip (+1). */
+  private currentSteer(): Steer {
+    if (this.steerTouch !== 0) return this.steerTouch;
+    if (this.cursors?.up.isDown) return -1;
+    if (this.cursors?.down.isDown) return 1;
+    return 0;
+  }
+
+  private showFightControls(on: boolean): void {
+    this.reelBtn.setVisible(on).setScale(1);
+    this.reelArc.clear();
+    this.paintReel(false);
+    this.steerUi.setVisible(on);
+    // the bait button cannot be used mid-fight and sat 2 px under the pulsing REEL button: off while fighting
+    this.baitBtn.setVisible(!on);
+    this.setSteer(0, null);
+    this.holdPointer = null;
+    if (!on) {
+      this.rodJudder = 0;
+      this.cameras.main.shakeEffect.reset();
+    }
   }
 
   /** Short vibration where supported (Android browsers); silent elsewhere. */
@@ -296,10 +425,24 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private buildUnderwater(): void {
-    const { data } = S();
+    const { data, player } = S();
     this.under = this.add.container(0, 0).setVisible(false).setDepth(20);
-    const h = WATER_BOTTOM + BANK_H - WATER_TOP;
+    const bottom = WATER_BOTTOM + BANK_H;
+    const h = bottom - SURFACE_Y;
     const bg = this.add.graphics();
+    // air strip above the surface (fish break through it when they jump); it also carries the meters
+    const air = TIME_SKY[timeOfDay(data, player)][1];
+    const airSteps = 6;
+    for (let i = 0; i < airSteps; i++) {
+      const c = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.ValueToColor(air).darken(30),
+        Phaser.Display.Color.ValueToColor(air),
+        airSteps,
+        i,
+      );
+      bg.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
+      bg.fillRect(0, WATER_TOP + ((SURFACE_Y - WATER_TOP) / airSteps) * i, W, (SURFACE_Y - WATER_TOP) / airSteps + 1);
+    }
     const steps = 16;
     for (let i = 0; i < steps; i++) {
       const c = Phaser.Display.Color.Interpolate.ColorWithColor(
@@ -309,26 +452,26 @@ export class FishingScene extends Phaser.Scene {
         i,
       );
       bg.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
-      bg.fillRect(0, WATER_TOP + (h / steps) * i, W, h / steps + 1);
+      bg.fillRect(0, SURFACE_Y + (h / steps) * i, W, h / steps + 1);
     }
     bg.fillStyle(0xcfe8f3, 0.9);
-    bg.fillRect(0, WATER_TOP, W, 4);
+    bg.fillRect(0, SURFACE_Y - 2, W, 4);
     for (let i = 0; i < 5; i++) {
       bg.fillStyle(0xffffff, 0.05);
-      bg.fillTriangle(40 + i * 80, WATER_TOP + 4, 10 + i * 80, WATER_TOP + h - 30, 90 + i * 80, WATER_TOP + h - 30);
+      bg.fillTriangle(40 + i * 80, SURFACE_Y + 2, 10 + i * 80, bottom - 30, 90 + i * 80, bottom - 30);
     }
     bg.fillStyle(0x3a2e1f, 1);
-    bg.fillRect(0, WATER_BOTTOM + BANK_H - 18, W, 18);
+    bg.fillRect(0, BED_Y, W, 18);
     for (let i = 0; i < 9; i++) {
       bg.fillStyle(0x2f5a3a, 1);
-      bg.fillEllipse(20 + i * 45, WATER_BOTTOM + BANK_H - 22, 10, 40 + (i % 3) * 14);
+      bg.fillEllipse(20 + i * 45, BED_Y - 4, 10, 40 + (i % 3) * 14);
     }
     this.under.add(bg);
     this.streaks = this.add.graphics();
     this.under.add(this.streaks);
     this.underLine = this.add.graphics();
     this.under.add(this.underLine);
-    this.underFish = this.add.image(W / 2, WATER_TOP + h / 2, 'fish_dock_perch');
+    this.underFish = this.add.image(W / 2, SURFACE_Y + h / 2, 'fish_dock_perch');
     this.under.add(this.underFish);
     this.bubbles = this.add.particles(0, 0, 'spark', {
       speedY: { min: -40, max: -90 }, speedX: { min: -10, max: 10 }, lifespan: 1400,
@@ -340,43 +483,49 @@ export class FishingScene extends Phaser.Scene {
       scale: { start: 0.5, end: 0 }, alpha: { start: 0.9, end: 0 }, quantity: 2, frequency: 30, emitting: false, tint: 0xcfe8f3,
     });
     this.under.add(this.spray);
+    // one-shot effects, fired at container coordinates: the bubble puff of a tell, the splash of a surface break
+    this.puff = this.add.particles(0, 0, 'bubble', {
+      speed: { min: 30, max: 110 }, angle: { min: 200, max: 340 }, lifespan: 900, gravityY: -60,
+      scale: { start: 0.9, end: 0.3 }, alpha: { start: 0.85, end: 0 }, emitting: false,
+    });
+    this.under.add(this.puff);
+    this.splashFx = this.add.particles(0, 0, 'drop', {
+      speed: { min: 120, max: 300 }, angle: { min: 235, max: 305 }, lifespan: 650, gravityY: 700,
+      scale: { start: 1, end: 0.4 }, alpha: { start: 0.95, end: 0 }, rotate: { min: -30, max: 30 }, emitting: false, tint: 0xe6f4fa,
+    });
+    this.under.add(this.splashFx);
 
-    // tension bar with the sweet zone
-    const barY = WATER_TOP + 26;
+    // strain meter: thin, no target zone; only the red top (above wearAbove of what the line can still take) and
+    // the lost part of the cap once the line is worn. Drawn every frame in drawStrain().
+    this.strainG = this.add.graphics();
+    this.under.add(this.strainG);
     const bw = W - 48;
-    const cfg = data.config.fight;
-    this.under.add(this.add.rectangle(W / 2, barY, bw, 26, 0x000000, 0.65));
-    this.under.add(this.add.rectangle(24 + bw * cfg.sweetLow, barY, bw * (cfg.sweetHigh - cfg.sweetLow), 22, C.good, 0.28).setOrigin(0, 0.5));
-    this.under.add(this.add.rectangle(24 + bw * 0.8, barY, bw * 0.2, 22, C.danger, 0.3).setOrigin(0, 0.5));
-    this.tensionFill = this.add.rectangle(24, barY, 0, 18, C.good).setOrigin(0, 0.5);
-    this.under.add(this.tensionFill);
-    this.tensionLabel = text(this, W / 2, barY, '', 12, { bold: true, stroke: true });
-    this.under.add(this.tensionLabel);
     // progress track: fish icon moves toward the net
-    const trackY = barY + 32;
-    this.under.add(this.add.rectangle(W / 2, trackY, bw, 6, 0x000000, 0.5));
-    this.distFill = this.add.rectangle(24, trackY, 0, 4, 0xffffff, 0.6).setOrigin(0, 0.5);
+    this.under.add(this.add.rectangle(W / 2, TRACK_Y, bw, 6, 0x000000, 0.5));
+    this.distFill = this.add.rectangle(24, TRACK_Y, 0, 4, 0xffffff, 0.6).setOrigin(0, 0.5);
     this.under.add(this.distFill);
-    this.trackFish = this.add.image(W - 24, trackY, 'fishtop_dock_perch').setScale(0.3).setFlipX(true).setAlpha(0.9);
+    this.trackFish = this.add.image(W - 24, TRACK_Y, 'fishtop_dock_perch').setScale(0.3).setFlipX(true).setAlpha(0.9);
     this.under.add(this.trackFish);
     const net = this.add.graphics();
     net.lineStyle(2, 0xf3efe4, 0.9);
-    net.strokeCircle(30, trackY, 8);
-    net.lineBetween(36, trackY + 6, 46, trackY + 14);
+    net.strokeCircle(30, TRACK_Y, 8);
+    net.lineBetween(36, TRACK_Y + 6, 46, TRACK_Y + 14);
     this.under.add(net);
-    this.distLabel = text(this, W / 2, trackY + 18, '', 11, { color: C.muted, stroke: true });
+    this.distLabel = text(this, W / 2, TRACK_Y + 16, '', 11, { color: C.muted, stroke: true });
     this.under.add(this.distLabel);
+    this.strainLabel = text(this, W - 24, TRACK_Y + 16, '', 12, { bold: true, stroke: true, origin: [1, 0.5] });
+    this.under.add(this.strainLabel);
   }
 
   // ---------- small helpers ----------
 
   private setHint(s: string, color = C.text): void {
     this.hint.setText(s).setColor(color);
-    if (this.phase !== 'fight' && this.phase !== 'predator') this.hint.setX(W / 2).setOrigin(0.5, 0.5).setWordWrapWidth(W - 30).setAlign('center');
+    if (this.phase !== 'fight' && this.phase !== 'predator') this.hint.setX(W / 2).setOrigin(0.5, 0.5).setWordWrapWidth(W - 30).setAlign('center').setFontSize(17);
   }
 
   private leave(): void {
-    if (this.phase === 'fight' || this.phase === 'predator') {
+    if (this.phase === 'fight' || this.phase === 'predator' || this.phase === 'hooking' || this.phase === 'landing') {
       toast(this, 'Finish the fight first!', C.dangerCss);
       return;
     }
@@ -439,9 +588,18 @@ export class FishingScene extends Phaser.Scene {
     }
   }
 
-  private release(): void {
+  private release(p?: Phaser.Input.Pointer): void {
     if (this.phase === 'charging') this.castNow();
+    if (p && this.steerPointer === p.id) this.setSteer(0, null);
+    // during the fight only the finger that holds the reel stops it (the other one may be steering)
+    if (p && this.phase === 'fight' && this.holdPointer !== null && p.id !== this.holdPointer) return;
     this.holding = false;
+    this.holdPointer = null;
+  }
+
+  /** The REEL button lights while held (SPACE or a finger). */
+  private paintReel(reeling: boolean): void {
+    this.reelBg.setFillStyle(reeling ? 0xffd27f : C.accent);
   }
 
   // ---------- cast ----------
@@ -590,8 +748,9 @@ export class FishingScene extends Phaser.Scene {
     };
     this.fight = createFight(this.fightParams);
     this.predatorPending = !!this.spot.predator && rollPredator(this.spot.predator.chance, !!fish.boss, randomRng);
-    this.almostShown = false;
     this.tNeedle = this.fight.tension / this.fightParams.lineCap;
+    this.steerTilt = 0;
+    this.rodJudder = 0;
 
     // short freeze, then cut underwater where the fish is already bolting
     this.time.delayedCall(430, () => {
@@ -599,117 +758,303 @@ export class FishingScene extends Phaser.Scene {
       this.cameras.main.flash(220, 255, 255, 255);
       this.bobber.setVisible(false).setScale(1).setAlpha(1);
       this.under.setVisible(true);
-      this.underFish.setTexture(`fish_${fish.id}`).setScale(0.9 + 1.1 * Math.min(1, fish.sizeCm.max / 190)).clearTint();
+      const scale = 0.9 + 1.1 * Math.min(1, fish.sizeCm.max / 190);
+      this.underFish.setTexture(`fish_${fish.id}`).setScale(scale).clearTint();
       this.trackFish.setTexture(`fishtop_${fish.id}`);
-      this.fishView = { x: W - 70, y: WATER_TOP + 150, vx: 60, yaw: 0, shake: 0.6 };
+      this.fishView = { ...newFishView(), x: W - 70, y: SURFACE_Y + 150, vx: 60, shake: 0.6, face: 1, scale };
       this.bubbles.start();
-      this.reelBtn.setVisible(true);
-      this.hint.setX(14).setOrigin(0, 0.5).setWordWrapWidth(W - 150).setAlign('left');
-      this.hint.setText(fish.boss ? 'Something huge. Let it run, reel when it stops, ease off when it pulls.' : 'Let it run. Reel when it stops. Ease off when it pulls.').setColor(C.text);
+      this.showFightControls(true);
+      this.hint.setX(14).setOrigin(0, 0.5).setWordWrapWidth(W - 150).setAlign('left').setFontSize(13);
+      const how = 'Let it run. Lift when it dives, dip when it jumps. Reel when it stops. Ease off before the strain goes red.';
+      this.hint.setText(fish.boss ? `Something huge. ${how}` : how).setColor(C.text);
       this.phase = 'fight';
       this.banner('LET IT RUN', '#9fd3e6', 40);
     });
   }
 
   private updateFight(dt: number): void {
+    const cfg = S().data.config.fight;
     const reeling = this.holding || !!this.spaceKey?.isDown;
-    stepFight(this.fight, this.fightParams, dt, reeling);
+    const steer = this.currentSteer();
+    this.paintReel(reeling);
+    stepFight(this.fight, this.fightParams, dt, reeling, steer);
     const f = this.fight;
+    const v = this.fishView;
     for (const e of f.events) {
-      if (e.type === 'run' || e.type === 'resist') {
+      if (e.type === 'tell') this.fishTell(e.side);
+      else if (e.type === 'run' || e.type === 'resist') {
         this.banner(e.type === 'resist' ? 'EASE OFF!' : 'LET IT RUN', e.type === 'resist' ? C.dangerCss : '#9fd3e6', 40);
         this.cameras.main.shake(e.type === 'resist' ? 260 : 160, e.type === 'resist' ? 0.01 : 0.005);
-        this.fishView.shake = 1;
+        v.shake = 1;
+        v.jumpT = 0;
         this.buzz(e.type === 'resist' ? [40, 30, 40] : 40);
+      } else if (e.type === 'lateRelease') {
+        // still reeling when it bolted: the line takes the shock
+        this.cameras.main.flash(120, 255, 40, 40, true);
+        this.buzz(60);
       } else if (e.type === 'runEnd') {
         this.banner('REEL!', C.goodCss, 44);
         this.buzz(20);
       } else if (e.type === 'tired') {
         this.banner("IT'S TIRING", C.goodCss, 34);
+      } else if (e.type === 'headShake') {
+        v.headShake = HEAD_SHAKE_S;
+        this.buzz([20, 20, 20]);
+      } else if (e.type === 'finale') {
+        this.banner('HOLD ON!', C.accentCss, 46);
+        this.hint.setText('HOLD! Keep reeling through the thrash.').setColor(C.accentCss);
+        this.cameras.main.shake(f.finaleLeft * 1000, 0.004, true);
+        v.finaleSplash = 0;
+        this.buzz([40, 40, 80]);
       } else if (e.type === 'phase') {
         this.banner(e.label, RARITY_CSS.rare, 36);
         this.cameras.main.shake(300, 0.012);
-        this.fishView.shake = 1;
+        v.shake = 1;
       }
     }
-    const frac = Phaser.Math.Clamp(f.tension / this.fightParams.lineCap, 0, 1);
+
+    // ---- feel: strain, resistance on the crank, judder, steering tilt
+    const lineCap = this.fightParams.lineCap;
+    const frac = Phaser.Math.Clamp(f.tension / lineCap, 0, 1);
+    const strain = f.tension / Math.max(1, f.effectiveCap);
+    // the finale clamps tension high on purpose: holding is right there, so the crank must not stall or judder
+    const resistance = f.finale ? 0 : Phaser.Math.Clamp((strain - FIGHT_FEEL.resistFrom) / FIGHT_FEEL.resistSpan, 0, 1);
+    // 0 / 1 square wave at JUDDER_HZ while the fish pulls hard
+    const judder = resistance > FIGHT_FEEL.judderAbove && Math.sin(f.elapsed * Math.PI * 2 * FIGHT_FEEL.judderHz) > 0 ? 1 : 0;
     this.rodBend = Phaser.Math.Linear(this.rodBend, frac, Math.min(1, dt * 12));
+    this.rodJudder = judder * 0.05;
+    this.steerTilt = Phaser.Math.Linear(this.steerTilt, steer * STEER_TILT, Math.min(1, dt * 14));
     this.tNeedle += (frac - this.tNeedle) * Math.min(1, dt * 16);
-    if (reeling && !f.running) this.crankAngle += dt * 9;
+    if (reeling) this.crankAngle += dt * FIGHT_FEEL.crankSpeed * (1 - resistance);
+    else if (f.lineVelocity > 0.5) this.crankAngle -= dt * f.lineVelocity * 1.2; // line paying out spins it back
     this.reelCrank.clear();
     this.reelCrank.lineStyle(3, 0x1a1200, 0.5);
     this.reelCrank.strokeCircle(0, 0, 34);
     this.reelCrank.lineStyle(4, 0x1a1200, 0.9);
     this.reelCrank.lineBetween(0, 0, Math.cos(this.crankAngle) * 34, Math.sin(this.crankAngle) * 34);
-    this.vignette.setAlpha(f.running ? 0.35 + 0.25 * Math.sin(f.elapsed * 14) : frac > 0.8 ? 0.6 + 0.3 * Math.sin(f.elapsed * 30) : 0);
+    const pulse = f.finale ? 0.07 * (0.5 + 0.5 * Math.sin(f.elapsed * 14)) : 0;
+    this.reelBtn.setScale(1 + judder * 0.04 + pulse);
+    this.reelArc.clear();
+    if (f.finale) {
+      // how long you may still let go before it throws the hook; drains while you are off the reel
+      const left = 1 - Phaser.Math.Clamp(f.finaleHeldGap / cfg.finaleThrowAfter, 0, 1);
+      if (left > 0.01) {
+        this.reelArc.lineStyle(3, 0xffffff, 0.95);
+        this.reelArc.beginPath();
+        this.reelArc.arc(0, 0, 54, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left, false);
+        this.reelArc.strokePath();
+      }
+    }
+    for (const b of this.steerBtns) b.bg.setFillStyle(b.dir === steer ? 0xffffff : 0x000000, b.dir === steer ? 0.35 : 0.3);
+    const red = strain > cfg.wearAbove;
+    this.vignette.setAlpha(f.running ? 0.35 + 0.25 * Math.sin(f.elapsed * 14) : red ? 0.6 + 0.3 * Math.sin(f.elapsed * 30) : 0);
 
+    this.drawStrain(strain, f.effectiveCap / lineCap, cfg.wearAbove);
     const bw = W - 48;
-    this.tensionFill.width = bw * this.tNeedle;
-    this.tensionFill.setFillStyle(this.tNeedle > 0.8 ? C.danger : f.inSweet ? C.good : C.accent);
-    this.tensionLabel.setText(
-      f.running ? 'RUNNING' : frac > 0.8 ? 'EASE OFF' : frac < 0.1 ? 'SLACK' : reeling ? (f.inSweet ? 'SWEET SPOT' : 'REELING') : 'REEL',
-    );
     const progress = Phaser.Math.Clamp(1 - f.lineOut / f.startLineOut, 0, 1);
     this.distFill.width = bw * progress;
     this.trackFish.setX(W - 24 - bw * progress);
     this.distLabel.setText(`${Math.max(0, f.lineOut).toFixed(0)} m · ${(f.stamina * 100).toFixed(0)}% fresh`);
-    if (!this.almostShown && f.lineOut < f.startLineOut * 0.12 && !f.running) {
-      this.almostShown = true;
-      this.banner('ALMOST!', C.accentCss, 40);
-    }
 
-    // fish with its own motion: a spring toward where the line says it is, head-shakes when it fights
-    const v = this.fishView;
-    const targetX = Phaser.Math.Linear(84, W - 56, Phaser.Math.Clamp(f.lineOut / f.startLineOut, 0, 1.4));
+    // ---- the fish: a spring toward where the line says it is; its body language carries the reads
+    const traits = fightTraits(this.fightParams.fish, cfg);
+    const against = f.running && steer !== 0 && steer === -f.side;
+    const withRun = f.running && steer !== 0 && steer === f.side;
+    const ratio = Phaser.Math.Clamp(f.lineOut / f.startLineOut, 0, 1.1);
+    const targetX = Phaser.Math.Linear(FISH_MIN_X, W - 70, ratio / 1.1); // on screen at any line-out
     v.vx += ((targetX - v.x) * 30 - v.vx * 7) * dt;
     v.x += v.vx * dt;
+    const restY = SURFACE_Y + 190 - (1 - f.stamina) * 90; // a tiring fish comes up
+    let targetY = restY + Math.sin(f.elapsed * 2.2) * 6;
+    let pitch = Phaser.Math.Clamp(v.vy / 350, -0.6, 0.6); // nose-down positive, follows the climb or dive
+    let face: 1 | -1 = v.face === 1 ? (v.vx > 5 ? 1 : -1) : v.vx > 40 ? 1 : -1; // dragged in: nose toward the angler
+    if (f.finale) {
+      targetY = SURFACE_Y + 6;
+      face = -1;
+    } else if (f.telling) {
+      // the tell: the body turns toward the side it will run, sinking (dive) or lifting (jump) a little
+      face = f.side;
+      targetY = restY + f.side * 14;
+      pitch = 0.5 * f.side;
+    } else if (f.running && f.side === 1) {
+      face = 1;
+      targetY = STEER_TOP - 12; // deep, but never on top of the steer buttons
+      pitch += 0.2 - (against ? 0.3 : 0); // lifting turns its head up
+    } else if (f.running) {
+      // surfacing run: it leaps through the surface again and again, toward the angler
+      face = -1;
+      v.jumpT += dt * 5.5;
+      targetY = SURFACE_Y - 10 + Math.sin(v.jumpT - Math.PI / 2) * 30 + (against ? 22 : 0); // dipping holds it under
+    }
+    v.face = face;
+    v.vy += ((targetY - v.y) * 40 - v.vy * 8) * dt;
+    v.y += v.vy * dt;
+    v.pitch += (pitch - v.pitch) * Math.min(1, dt * 14);
     v.shake = Math.max(0, v.shake - dt * 1.4);
-    const depthY = WATER_TOP + 130 + (1 - f.stamina) * 70;
-    v.y += ((depthY + Math.sin(f.elapsed * (f.running ? 9 : 2.2)) * (f.running ? 12 : 5)) - v.y) * Math.min(1, dt * 5);
-    v.yaw = Phaser.Math.Clamp(-v.vx / 500, -0.45, 0.45) + Math.sin(f.elapsed * 38) * 0.4 * v.shake;
-    this.underFish.setPosition(v.x, v.y).setFlipX(v.vx > 8).setRotation(v.yaw);
-    this.underFish.setTint(f.running ? 0xffc0b0 : 0xffffff);
-    this.bubbles.setPosition(v.x - 20, v.y);
+    v.flick = Math.max(0, v.flick - dt * 4);
+    v.headShake = Math.max(0, v.headShake - dt);
+    const shaking = v.headShake / HEAD_SHAKE_S;
+    const thrash = f.finale ? Math.sin(f.elapsed * 28) * (0.45 + 0.3 * traits.thrash) : 0;
+    const yaw = v.pitch * v.face
+      + Math.sin(f.elapsed * 38) * 0.4 * v.shake
+      + Math.sin(f.elapsed * 60) * 0.45 * v.flick
+      + Math.sin(f.elapsed * 45) * 0.75 * shaking
+      + thrash;
+    const scale = v.scale * (f.finale ? 1 + 0.06 * Math.sin(f.elapsed * 20) : 1);
+    this.underFish.setPosition(v.x, v.y).setFlipX(v.face < 0).setRotation(yaw).setScale(scale);
+    this.underFish.setTint(withRun ? 0xff6a5a : f.running ? 0xffd6cc : 0xffffff);
+    this.bubbles.setPosition(v.x - 20 * v.face, v.y);
 
-    // streaks and spray while line screams out
+    // surface breaks: a ring and a burst of spray each time it crosses; rings on a timer while it thrashes
+    v.splashCd = Math.max(0, v.splashCd - dt);
+    const above = v.y < SURFACE_Y;
+    if (above !== v.above) {
+      v.above = above;
+      if (v.splashCd <= 0 && Math.abs(v.vy) > 30) {
+        this.surfaceSplash(v.x, 1);
+        v.splashCd = 0.12;
+      }
+    }
+    if (f.finale) {
+      v.finaleSplash -= dt;
+      if (v.finaleSplash <= 0) {
+        this.surfaceSplash(v.x + Phaser.Math.Between(-20, 20), 1.4);
+        v.finaleSplash = FINALE_SPLASH_EVERY;
+      }
+    }
+
+    // streaks and spray while line screams out: shorter when you steer against the run, double spray with it
     this.streaks.clear();
     const out = Math.max(0, f.lineVelocity);
-    if (out > 1) {
-      this.spray.setPosition(v.x - 30, v.y);
+    const tail = -v.face;
+    if (out > 1 || f.finale) {
+      this.spray.setPosition(v.x + 30 * tail, v.y);
+      this.spray.setEmitterAngle(tail < 0 ? { min: 150, max: 210 } : { min: -30, max: 30 });
+      this.spray.setQuantity(withRun || f.finale ? 4 : 2);
       if (!this.spray.emitting) this.spray.start();
+      const len = against ? 0.45 : 1;
       const n = Math.min(6, Math.floor(out));
       for (let i = 0; i < n; i++) {
         const sy = v.y - 18 + i * 7;
+        const x1 = v.x + tail * (40 + i * 6);
         this.streaks.lineStyle(2, 0xffffff, 0.35 - i * 0.04);
-        this.streaks.lineBetween(v.x - 40 - i * 6, sy, v.x - 90 - out * 6 - i * 10, sy);
+        this.streaks.lineBetween(x1, sy, x1 + tail * (50 + out * 6 + i * 4) * len, sy);
       }
     } else if (this.spray.emitting) this.spray.stop();
 
-    // line from the rod with sag; vibrates near the cap
-    this.underLine.clear();
-    const jitter = frac > 0.82 ? Math.sin(f.elapsed * 70) * 3 : 0;
-    this.underLine.lineStyle(frac > 0.82 ? 2.5 : 2, frac > 0.82 ? C.danger : C.line, 0.95);
-    const sag = (1 - frac) * 55;
-    const mouthX = v.x - 32;
-    this.underLine.beginPath();
-    this.underLine.moveTo(30, WATER_TOP + 4);
-    this.underLine.lineTo((30 + mouthX) / 2 + jitter, (WATER_TOP + v.y) / 2 + sag + jitter);
-    this.underLine.lineTo(mouthX, v.y);
-    this.underLine.strokePath();
+    this.drawSideLine(frac, red, shaking, f.tension < cfg.headShakeSlackBelow && !f.running && !f.finale);
 
-    if (this.predatorPending && f.stamina < S().data.config.predator.triggerStaminaBelow && f.outcome === 'fighting') {
+    const calm = !f.finale && !f.telling && !f.running;
+    if (this.predatorPending && calm && f.stamina < S().data.config.predator.triggerStaminaBelow && f.outcome === 'fighting') {
       this.predatorPending = false;
+      this.pauseFightView(true);
       this.startPredator();
       return;
     }
     if (f.outcome === 'landed') this.landSequence();
     else if (f.outcome === 'snapped') {
       this.banner('SNAP!', C.dangerCss, 60);
-      this.loseFish('The line broke. Ease off before the bar goes red.', true);
+      this.loseFish('The line broke. Ease off before the strain goes red.', true);
     } else if (f.outcome === 'escaped') {
       this.banner("IT'S GONE", C.dangerCss, 44);
       this.loseFish('Slack line. Keep some tension on it.');
+    } else if (f.outcome === 'thrown') {
+      this.banner('THREW THE HOOK', C.dangerCss, 40);
+      this.loseFish(f.finale ? 'Hold through the thrash!' : 'Slack line. Keep it tight between runs.');
     }
+  }
+
+  /** Under the predator overlay: no effects, no REEL / steer targets (taps there must reach the predator). */
+  private pauseFightView(paused: boolean): void {
+    this.cameras.main.shakeEffect.reset();
+    this.vignette.setAlpha(0);
+    this.streaks.clear();
+    this.spray.stop();
+    if (paused) this.bubbles.stop();
+    else this.bubbles.start();
+    this.reelBtn.setVisible(!paused).setScale(1);
+    this.steerUi.setVisible(!paused);
+    this.setSteer(0, null);
+    this.holding = false;
+    this.holdPointer = null;
+    this.paintReel(false);
+  }
+
+  /** The run warning, told by the body only: turn, tail flick, bubble puff. No text, no arrow. */
+  private fishTell(side: RunSide): void {
+    const v = this.fishView;
+    v.flick = 1;
+    v.face = side;
+    this.puff.explode(10, v.x + 30 * side * v.scale, v.y - 6);
+    this.buzz(15);
+  }
+
+  private surfaceSplash(x: number, size: number): void {
+    const ring = this.add.ellipse(x, SURFACE_Y, 24 * size, 8 * size).setStrokeStyle(2, 0xffffff, 0.85);
+    this.under.addAt(ring, this.under.getIndex(this.underFish));
+    this.tweens.add({ targets: ring, scaleX: 4, scaleY: 2.5, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
+    this.splashFx.explode(Math.round(12 * size), x, SURFACE_Y);
+  }
+
+  /** Thin strain meter: neutral fill; red above wearAbove of what the line can still take; worn-off cap dimmed. */
+  private drawStrain(strain: number, capFrac: number, wearAbove: number): void {
+    const g = this.strainG;
+    const x0 = 24;
+    const bw = W - 48;
+    const y = STRAIN_Y;
+    const h = 8;
+    g.clear();
+    g.fillStyle(0x000000, 0.6);
+    g.fillRect(x0 - 2, y - h / 2 - 2, bw + 4, h + 4);
+    const redFrom = wearAbove * capFrac;
+    g.fillStyle(C.danger, 0.9);
+    g.fillRect(x0 + bw * redFrom, y - h / 2, bw * (capFrac - redFrom), h);
+    if (capFrac < 1) {
+      g.fillStyle(0x3a3a3a, 0.9);
+      g.fillRect(x0 + bw * capFrac, y - h / 2, bw * (1 - capFrac), h);
+    }
+    g.fillStyle(0xf3efe4, 0.95);
+    g.fillRect(x0, y - 2, bw * Math.min(this.tNeedle, capFrac), 4);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(x0 + bw * capFrac - 1, y - h / 2 - 3, 2, h + 6);
+    if (strain > wearAbove) this.strainLabel.setText('EASE OFF').setColor(C.dangerCss);
+    else if (strain < 0.1) this.strainLabel.setText('SLACK').setColor(C.muted);
+    else this.strainLabel.setText('');
+  }
+
+  /** Side-view rod tip (tilts with steering, bends and judders with the strain) and the line to the fish's mouth. */
+  private drawSideLine(frac: number, red: boolean, shaking: number, slack: boolean): void {
+    const v = this.fishView;
+    const e = this.fight.elapsed;
+    const g = this.underLine;
+    g.clear();
+    const tip = { x: ANCHOR.x, y: ANCHOR.y + (this.steerTilt / STEER_TILT) * STEER_LIFT_PX + this.rodJudder * 60 };
+    const base = { x: -14, y: ANCHOR.y + 14 };
+    const bend = this.rodBend + this.rodJudder;
+    const ctrl = { x: (base.x + tip.x) / 2 + bend * 6, y: (base.y + tip.y) / 2 - 6 + bend * 10 };
+    const rod = new Phaser.Curves.QuadraticBezier(
+      new Phaser.Math.Vector2(base.x, base.y),
+      new Phaser.Math.Vector2(ctrl.x, ctrl.y),
+      new Phaser.Math.Vector2(tip.x, tip.y),
+    );
+    const pts = rod.getPoints(8);
+    for (let i = 1; i < pts.length; i++) {
+      g.lineStyle(5 - (i / pts.length) * 3, i < 3 ? 0x3a2a1a : 0xd8c48a, 1);
+      g.lineBetween(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
+    }
+    // the line: sags with low strain, vibrates in the red, jerks on a head-shake, hangs in a belly when slack
+    const jitter = (red ? Math.sin(e * 70) * 3 : 0) + Math.sin(e * 90) * 7 * shaking;
+    g.lineStyle(red ? 2.5 : 2, red ? C.danger : C.line, 0.95);
+    const sag = (1 - frac) * 55 + (slack ? 20 : 0);
+    const rot = this.underFish.rotation;
+    const nose = 38 * v.scale * v.face;
+    const mouthX = v.x + Math.cos(rot) * nose;
+    const mouthY = v.y + Math.sin(rot) * nose;
+    g.beginPath();
+    g.moveTo(tip.x, tip.y);
+    g.lineTo((tip.x + mouthX) / 2 + jitter, (tip.y + mouthY) / 2 + sag + jitter);
+    g.lineTo(mouthX, mouthY);
+    g.strokePath();
   }
 
   // ---------- predator ----------
@@ -757,6 +1102,7 @@ export class FishingScene extends Phaser.Scene {
       this.predatorUi = null;
       this.predator = null;
       this.phase = 'fight';
+      this.pauseFightView(false);
       this.flash('Chased it off!', C.goodCss, 30);
     } else if (this.predator.outcome === 'lost') {
       this.predatorUi?.destroy();
@@ -774,7 +1120,7 @@ export class FishingScene extends Phaser.Scene {
     this.phase = 'landing';
     this.spray.stop();
     this.streaks.clear();
-    this.reelBtn.setVisible(false);
+    this.showFightControls(false);
     this.vignette.setAlpha(0);
     this.banner('LANDED!', C.goodCss, 56);
     this.cameras.main.zoomTo(1.06, 150, 'Quad.easeOut');
@@ -807,7 +1153,7 @@ export class FishingScene extends Phaser.Scene {
     S().save();
     this.phase = 'result';
     this.reelInBtn.setVisible(false);
-    this.reelBtn.setVisible(false);
+    this.showFightControls(false);
     this.vignette.setAlpha(0);
     this.rodBend = 0;
     this.under.setVisible(false);
@@ -834,7 +1180,7 @@ export class FishingScene extends Phaser.Scene {
     const result = recordCatch(data, player, fish, size, timeOfDay(data, player));
     S().save();
     this.under.setVisible(false);
-    this.reelBtn.setVisible(false);
+    this.showFightControls(false);
     this.vignette.setAlpha(0);
     this.rodBend = 0;
     this.bubbles.stop();
@@ -965,6 +1311,10 @@ export class FishingScene extends Phaser.Scene {
       this.waves[1].tilePositionX -= 3 * dt;
       this.waves[1].tilePositionY += 1.5 * dt;
     }
+    if (this.phase !== 'fight') {
+      this.rodJudder = 0;
+      this.steerTilt = Phaser.Math.Linear(this.steerTilt, 0, Math.min(1, dt * 10));
+    }
     this.drawRod();
 
     if (this.phase !== 'fight' && this.phase !== 'predator' && this.school) {
@@ -1060,4 +1410,8 @@ function beginCastCheck(data: ReturnType<typeof S>['data'], player: ReturnType<t
   const lure = isLure(data, player.equipped);
   if (!lure && (player.inventory[player.equipped] ?? 0) <= 0) return { ok: false, reason: `Out of ${itemName(data, player.equipped)}. Tap the hook to change bait.` };
   return { ok: true };
+}
+
+function newFishView(): FishView {
+  return { x: 0, y: 0, vx: 0, vy: 0, pitch: 0, face: 1, shake: 0, flick: 0, headShake: 0, scale: 1, above: false, splashCd: 0, finaleSplash: 0, jumpT: 0 };
 }

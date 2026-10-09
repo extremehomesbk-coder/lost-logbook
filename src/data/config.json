@@ -78,10 +78,28 @@
     "runDurationMult": 1.7,
     "restMult": 1,
     "resistRise": 1.8,
-    "sweetLow": 0.45,
-    "sweetHigh": 0.72,
-    "sweetGainMult": 1.4,
-    "sweetDrainMult": 1.6,
+    "tellSeconds": 0.45,
+    "lateSpike": 18,
+    "headShakeEvery": {
+      "min": 2.5,
+      "max": 5
+    },
+    "headShakeSlackBelow": 20,
+    "steerShorten": 0.45,
+    "steerAgainstGain": 0.6,
+    "steerWrongGain": 1.6,
+    "steerWrongRise": 1.5,
+    "wearAbove": 0.8,
+    "wearPerSecond": 0.06,
+    "wearMax": 0.4,
+    "finaleBelow": 0.15,
+    "finaleSeconds": {
+      "min": 1.5,
+      "max": 3
+    },
+    "finaleThrowAfter": 0.6,
+    "finaleRiseCap": 0.78,
+    "finaleGainMult": 0.35,
     "runRampIn": 0.35,
     "runFadeOut": 0.5
   },

@@ -43,20 +43,34 @@ npm run sim       # just the playthrough simulation (report in scratch/playthrou
 | `fight.releaseFall` | 42 /s | Tension drop when released |
 | `fight.runRiseMult` | 1.7 | Reeling during a run multiplies the pull rise |
 | `fight.slackBelow` | 8 | Tension under this counts as slack |
-| `fight.slackSeconds` | 2.5 | Slack this long = fish escapes |
+| `fight.slackSeconds` | 2.5 | Slack this long = fish escapes (only counted while the fish rests: never during a tell or a run) |
 | `fight.reelSpeed` | 11 m/s | Base reel gain, scaled by sqrt(rod strength) |
 | `fight.gainBase`, `fishHold`, `gainMin` | 1.2 / 0.5 / -0.6 | Reel gain fraction = clamp(gainBase - fishHold * strength/rod, gainMin, gainBase); negative = fish takes line while you reel |
 | `fight.tightBelow`, `tightSpan` | 25 / 35 | Reel gain ramps from 0 at tension 25 to full at 60 (slack line moves no fish) |
 | `fight.runSpeed` | 5.5 m/s | Line the fish takes per second during a run (35% of that if you keep reeling) |
-| `fight.runDrain` | 1.0 | Stamina cost of running: (runDrain / fish.stamina) per second |
+| `fight.runDrain` | 1.0 | Stamina cost of running: (runDrain / fish.stamina) per second; ÷ steerShorten while steered against, so a run costs the same stamina either way |
 | `fight.holdDrain` | 0.5 | Stamina cost on a tight line: (holdDrain * tension/cap / fish.stamina) per second |
 | `fight.restBelow`, `restRegen` | 40 / 0.6 | Below this tension (released, not running) the fish regains (restRegen / fish.stamina) per second |
-| `fight.tiredBelow` | 0.12 | Stamina under this: no more runs ("It is tiring") |
+| `fight.tiredBelow` | 0.12 | Stamina under this: no more runs ("It is tiring"); a tell in progress is cancelled with a runEnd event so the view shows REEL! again |
 | `fight.weakPull` | 0.4 | Pull of an exhausted fish as a fraction of fresh pull |
 | `fight.firstRunDelay` | 0.35 s | Every fight opens with a run this soon after the hook (first decision is always "let it run") |
-| `fight.sweetLow` / `sweetHigh` | 0.45 / 0.72 | Sweet zone on the tension bar (fractions of the line cap) |
-| `fight.sweetGainMult` | 1.4 | Reel gain multiplier inside the sweet zone |
-| `fight.sweetDrainMult` | 1.6 | Fish tires this much faster while reeled inside the sweet zone |
+| `fight.tellSeconds` | 0.45 s | Default warning before a timed run (fish `fight.tell` overrides); the run's side is picked at the tell |
+| `fight.lateSpike` | 18 | Tension added when a timed (telegraphed) run starts while the player is still reeling ("lateRelease"); resist runs add none |
+| `fight.headShakeEvery.min/max` | 2.5 / 5 s | A resting, untired fish head-shakes this often (clock paused during tells, runs and the finale; restarts at every run end) |
+| `fight.headShakeSlackBelow` | 20 | Tension under this at a head-shake = hook thrown |
+| (steering benefit × rod/fish strength, clamped 0..1: `steerLeverage()` in fight.ts; a weak rod cannot turn a big fish) | | |
+| `fight.steerShorten` | 0.45 | Steering against the run (steer = -side) makes it last this fraction as long |
+| `fight.steerAgainstGain` | 0.6 | Line the fish takes while you steer against its run |
+| `fight.steerWrongGain` | 1.6 | Line the fish takes while you steer with its run |
+| `fight.steerWrongRise` | 1.5 | Tension rise multiplier while you steer with its run |
+| `fight.wearAbove` | 0.8 | Tension above this fraction of the worn cap (effectiveCap) wears the line; no wear during the finale |
+| `fight.wearPerSecond` | 0.06 | Cap lost per second in the red (effectiveCap = lineCap × (1 − lineWear)); lasts the whole fight |
+| `fight.wearMax` | 0.4 | Most of the cap wear can take; because wear is measured against the worn cap it compounds and can reach this |
+| `fight.finaleBelow` | 0.15 | Finale starts the first time line-out drops under this fraction of the hook-set line-out (fish not running) |
+| `fight.finaleSeconds.min/max` | 1.5 / 3 s | Finale length before the fish is beaten, × (0.6 + 0.8 × fish `thrash`); landed when it ends while held, or at line-out 0 |
+| `fight.finaleThrowAfter` | 0.6 s | Not holding this long in the finale = hook thrown (the gap decays at 2× while holding) |
+| `fight.finaleRiseCap` | 0.78 | During the finale tension is clamped to this fraction of effectiveCap, so holding through it is safe |
+| `fight.finaleGainMult` | 0.35 | Reel gain multiplier during the finale: the thrashing fish gives the last metres slowly, so thrash length and holding matter |
 | `fight.runRampIn` / `runFadeOut` | 0.35 / 0.5 s | Runs accelerate in and ease out over these times |
 | `fight.minRunDuration` | 0.6 s | Floor on run length (runs shorten as stamina drops) |
 | `fight.lineCaps` | 100 / 130 / 170 / 220 | Tension cap per line tier |
@@ -94,20 +108,35 @@ this item), `sizeCm.min/max` (sizes roll on a triangle peaked at 35% of the rang
 `value` (coins at mid size), `color` (placeholder art), `fight` (`strength`, `stamina` seconds of running, `runEvery`,
 `runDuration`), optional `grantsKeyItem`, `once` (never bites again after the first catch: boss and legend),
 optional `boss.phases` (`staminaBelow`, `strengthMult`, `runEveryMult`, `label`).
+Optional fight extras: `fight.tell` (seconds of warning, default `config.fight.tellSeconds`), `fight.sideBias` (-1..1,
+default 0; a run goes deep with probability (1 + sideBias) / 2), `fight.thrash` (0..1, default 0.5; finale length).
+
+| Fish | tell | sideBias | thrash | Why |
+|---|---|---|---|---|
+| Speckled Trout, Silver Darter, Whitewater Grayling | default | -0.6 | 0.8 | Jumpers: mostly surface runs, long thrash |
+| Moss Carp, Lantern Catfish, Stonecrawler Bullhead | default | 0.7 | 0.3 | Divers: mostly deep runs, short thrash |
+| The Ironjaw | 0.4 s | 0.4 | 1.0 | Boss: shorter tell, leans deep, longest thrash |
+| Old Greyback | 0.4 s | 0 | 1.0 | Legend: shorter tell, unreadable side, longest thrash |
+| everything else | default | 0 | 0.5 | |
 
 Strength ladder: 0.6-1.4 dock/creek commons, 1.6-2.0 creek uncommon/rare, 2.4-2.8 pond/falls, 3.2-3.4 night lake,
 5.0 Ironjaw (boss), 6.5 Old Greyback (legend). Rod strength 1-4 is on the same scale.
 
-Bot landing matrix (20 seeds, `scratch/probe` style, after the final tuning):
+Bot landing matrix (20 seeds, `scratch/probe` style, tell/steer/finale model after the 2026-10-09 review fixes;
+losses are snaps, the bot never throws the hook). 100% unless shown:
 
 | Fish | rod 1 / line 1 | rod 2 / line 2 | rod 3 / line 3 | rod 4 / line 4 |
 |---|---|---|---|---|
-| Dock Perch | 100% in 12 s | 4 s | 3 s | 3 s |
-| Speckled Trout | 100% in 29 s | 8 s | 6 s | 6 s |
-| Moss Carp | 100% in 46 s | 14 s | 6 s | 5 s |
-| Lantern Catfish | 15% | 25 s | 10 s | 7 s |
-| The Ironjaw | 0% | 95 s | 33 s | 10 s |
-| Old Greyback | 0% | 80% in 141 s | 100 s | 30 s |
+| Dock Perch | 14 s | 5 s | 5 s | 4 s |
+| Speckled Trout | 26 s | 14 s | 13 s | 13 s |
+| Moss Carp | 43 s | 16 s | 10 s | 7 s |
+| Lantern Catfish | 82 s | 28 s | 15 s | 10 s |
+| The Ironjaw | 0% | 79 s | 48 s | 15 s |
+| Old Greyback | 0% | 65% in 159 s | 82 s | 31 s |
+
+Steering pays (40 seeds, same policy, steer fixed against / centred / with the run): Moss Carp rod 1 lands 40/40 in
+33 / 48 / 49 s, Ironjaw rod 2 40/40 in 66 / 88 / 90 s, Ironjaw rod 3 in 22 / 74 / 74 s, Old Greyback rod 4 in 18 / 87 / 95 s.
+Rule tests: `src/sim/fight.test.ts` (tell before a timed run, late release, steering, head-shakes, wear, finale).
 
 ## spots.json (5 spots)
 
@@ -144,10 +173,17 @@ Silver Blade + Golden Scale + Ironjaw Hook; `assembly`). Buying a rod or line au
 Design resolution 390×844 (portrait iPhone), Phaser `FIT`; `src/game/ui.ts` (`W`, `H`, `TOP`, `BOTTOM`, palette,
 rarity colours, sky colours per period). Placeholder textures are generated in `src/game/textures.ts`; the keys are
 stable so real art can be loaded under the same key: `fish_<id>`, `fish_<id>_silhouette`, `bobber`, `spot_<id>`,
-`fishtop_<id>` (top-down outline), `angler`, `wave`, `reed`, `leaf`, `predator_<id>`, `coin`, `lock`, `spark`, `ray`.
+`fishtop_<id>` (top-down outline), `angler`, `wave`, `reed`, `leaf`, `predator_<id>`, `coin`, `lock`, `spark`, `ray`,
+`bubble`, `drop`.
 
 ## Simulation constants (not gameplay; `src/sim/playthrough.test.ts`)
 
 Bot time per action: cast 2.5 s, lost fish 1.5 s, failed hook 1.0 s, shop visit 10 s, travel 3 s, wait 2 s,
 board 5 s, predator 2 s; hook success 90%, predator defence 85%. Bot fight policy (`src/sim/bot.ts`): reaction
-0.25 s, release at 75% of the cap, resume at 50%.
+0.3 s (human reaction plus touch latency); lets go on a tell or a run and steers against the run's side, except that
+it misreads every second run and leaves the rod centred (`missSteerEvery` 2); holds through the finale; while the
+fish rests it reels to 70% of the effective cap, releases to 45%, and never lets tension under headShakeSlackBelow + 8.
+Retune 2026-10-09: release/resume 75% / 50% -> 70% / 45% (wear starts at 80%, a late release adds 18); reaction
+0.25 -> 0.3 s; misread every second run added. A perfect bot (steers every run, 0.25-0.3 s) runs a 20-21 min median,
+under the 22-min floor, because steering against a run leaves the fish ~27% of the line it used to take; with the
+misreads the median is 26.9 min (25.0 at 0.35 s reaction, 26.9 at 0.25 s). The sweet-zone model ran 29.4 min.

@@ -225,7 +225,9 @@
       "strength": 1.4,
       "stamina": 10,
       "runEvery": 5,
-      "runDuration": 1
+      "runDuration": 1,
+      "sideBias": 0.7,
+      "thrash": 0.3
     },
     "blurb": "Hugs the bottom and sulks."
   },
@@ -257,7 +259,9 @@
       "strength": 2,
       "stamina": 12,
       "runEvery": 2.5,
-      "runDuration": 1.3
+      "runDuration": 1.3,
+      "sideBias": -0.6,
+      "thrash": 0.8
     },
     "blurb": "Jumps twice before it tires."
   },
@@ -288,7 +292,9 @@
       "strength": 1.6,
       "stamina": 9,
       "runEvery": 1.8,
-      "runDuration": 0.9
+      "runDuration": 0.9,
+      "sideBias": -0.6,
+      "thrash": 0.8
     },
     "grantsKeyItem": "key_blade",
     "blurb": "One scale from its flank makes a spinner blade."
@@ -355,7 +361,9 @@
       "strength": 2.4,
       "stamina": 18,
       "runEvery": 4,
-      "runDuration": 1.6
+      "runDuration": 1.6,
+      "sideBias": 0.7,
+      "thrash": 0.3
     },
     "blurb": "Slow, heavy, stubborn."
   },
@@ -482,7 +490,9 @@
       "strength": 2.5,
       "stamina": 12,
       "runEvery": 2,
-      "runDuration": 1.1
+      "runDuration": 1.1,
+      "sideBias": -0.6,
+      "thrash": 0.8
     },
     "blurb": "A sail for a fin."
   },
@@ -516,7 +526,10 @@
       "strength": 5,
       "stamina": 45,
       "runEvery": 3.5,
-      "runDuration": 2
+      "runDuration": 2,
+      "tell": 0.4,
+      "sideBias": 0.4,
+      "thrash": 1
     },
     "grantsKeyItem": "key_hook",
     "boss": {
@@ -599,7 +612,9 @@
       "strength": 3.2,
       "stamina": 20,
       "runEvery": 4.5,
-      "runDuration": 1.5
+      "runDuration": 1.5,
+      "sideBias": 0.7,
+      "thrash": 0.3
     },
     "blurb": "Its whiskers glow faintly."
   },
@@ -661,7 +676,10 @@
       "strength": 6.5,
       "stamina": 60,
       "runEvery": 3,
-      "runDuration": 2
+      "runDuration": 2,
+      "tell": 0.4,
+      "sideBias": 0,
+      "thrash": 1
     },
     "boss": {
       "phases": [
