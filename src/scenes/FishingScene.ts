@@ -700,14 +700,9 @@ export class FishingScene extends Phaser.Scene {
       return;
     }
     if (r === 'early') {
-      const engaged = this.school?.actors.find((a) => a.state === 'circle' || a.state === 'approach');
-      if (engaged && data.config.bite.earlyTapSpooks) {
-        this.school?.spook(this.bait());
-        this.loseFish('Too early! You yanked it away and spooked the fish.', false, false);
-      } else if (!this.usingLure) {
-        this.school?.spook(this.bait());
-        this.loseFish('Nothing on yet. The splash scared them off.', false, false);
-      }
+      // a twitch on the line: a circling fish backs off for a moment, nothing is lost
+      this.tweens.add({ targets: this.bobber, y: this.bobber.y - 6, duration: 70, yoyo: true });
+      if (this.school?.backOff(this.bait())) this.setHint('Too early. Wait for the float to go under.', C.muted);
       return;
     }
     this.school?.spook(this.bait());
@@ -1284,10 +1279,8 @@ export class FishingScene extends Phaser.Scene {
 
   private nibble(): void {
     this.buzz(12);
-    this.tweens.add({ targets: this.bobber, y: this.bobber.y + 5, duration: 90, yoyo: true, repeat: 1 });
-    this.bobber.setTint(0xffe27a);
-    this.time.delayedCall(220, () => { if (this.biteAt === Number.POSITIVE_INFINITY) this.bobber.clearTint(); });
-    const ring = this.add.ellipse(this.bobber.x, this.bobber.y + 4, 16, 10).setStrokeStyle(1.5, 0xffe27a, 0.8).setDepth(5);
+    this.tweens.add({ targets: this.bobber, y: this.bobber.y + 4, duration: 90, yoyo: true, repeat: 1 });
+    const ring = this.add.ellipse(this.bobber.x, this.bobber.y + 4, 16, 10).setStrokeStyle(1.5, 0xffffff, 0.5).setDepth(5);
     this.tweens.add({ targets: ring, scaleX: 2.5, scaleY: 2.5, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
   }
 
@@ -1326,8 +1319,14 @@ export class FishingScene extends Phaser.Scene {
         else if (e.type === 'bite') {
           this.hookedFish = e.actor.fish;
           this.biteAt = this.waitT;
-          this.bobber.setTint(0xffe27a).setY(this.bobber.y + 10).setAlpha(0.8);
+          this.bobber.setTint(0xffe27a);
+          this.tweens.add({ targets: this.bobber, y: this.bobber.y + 24, alpha: 0.35, scale: 0.75, duration: 110, ease: 'Quad.easeIn' });
           this.splash(this.bobber.x, this.bobber.y);
+          const big = this.add.ellipse(this.bobber.x, this.bobber.y + 6, 30, 18).setStrokeStyle(4, 0xffe27a, 1).setDepth(8);
+          this.tweens.add({ targets: big, scaleX: 4, scaleY: 4, alpha: 0, duration: 650, onComplete: () => big.destroy() });
+          const mark = text(this, this.bobber.x, this.bobber.y - 44, '!', 44, { bold: true, color: C.accentCss, stroke: true }).setDepth(9).setScale(0.5);
+          this.tweens.add({ targets: mark, scale: 1.2, duration: 120, ease: 'Back.easeOut' });
+          this.tweens.add({ targets: mark, alpha: 0, delay: 500, duration: 400, onComplete: () => mark.destroy() });
           this.buzz([20, 30, 60]);
           if (this.usingLure && this.holding) {
             // line already tight: a strike on a moving lure hooks itself

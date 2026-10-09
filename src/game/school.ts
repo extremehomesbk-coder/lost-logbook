@@ -139,6 +139,18 @@ export class School {
     this.respawnIn = between(this.rng, this.cfg.respawn.min, this.cfg.respawn.max);
   }
 
+  /** An early twitch on the line: the engaged fish backs off and starts its approach again. Returns true if one did. */
+  backOff(bait: Bait | null): boolean {
+    const a = this.engaged;
+    if (!a || !bait || (a.state !== 'circle' && a.state !== 'approach' && a.state !== 'chase')) return false;
+    a.state = 'approach';
+    a.t = -1.2; // pause before it comes back in
+    const ang = Math.atan2(a.y - bait.y, a.x - bait.x);
+    a.x = bait.x + Math.cos(ang) * (this.cfg.circleRadius * 2.2);
+    a.y = Phaser.Math.Clamp(bait.y + Math.sin(ang) * (this.cfg.circleRadius * 2.2), a.band.top, a.band.bottom);
+    return true;
+  }
+
   /** Scare the engaged fish (and anything near the bait) away. */
   spook(bait: Bait | null): void {
     for (const a of this.actors) {

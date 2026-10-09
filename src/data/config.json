@@ -40,7 +40,7 @@
       "min": 0.5,
       "max": 1.1
     },
-    "hookWindowSeconds": 0.6,
+    "hookWindowSeconds": 1.1,
     "nothingBitingSeconds": 9,
     "earlyTapSpooks": true
   },

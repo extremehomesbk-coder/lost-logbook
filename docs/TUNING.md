@@ -29,7 +29,7 @@ npm run sim       # just the playthrough simulation (report in scratch/playthrou
 | `cast.flightSeconds` | 0.9 | Bobber flight animation |
 | `bite.nibbles.min/max` | 0 / 3 | Fake nibbles before the real dip |
 | `bite.nibbleGap.min/max` | 0.5 / 1.1 s | Gap between nibbles (and nibble to dip) |
-| `bite.hookWindowSeconds` | 0.6 | Tap window after the dip |
+| `bite.hookWindowSeconds` | 1.1 | Tap window after the dip |
 | `bite.nothingBitingSeconds` | 9 | How long an empty cast waits before "nothing biting" |
 | `bite.earlyTapSpooks` | true | Tapping during a nibble loses the fish |
 | `fight.startTension` | 35 | Tension when hooked (line units; cap depends on line) |
